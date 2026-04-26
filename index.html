@@ -1,3 +1,13 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h1>Screener</h1>
+
+<button onclick="refreshData()">Refresh</button>
+
+<div id="table"></div>
+
 <script>
 async function refreshData() {
   const res = await fetch('/api/refresh');
@@ -8,9 +18,12 @@ async function refreshData() {
   container.innerHTML = data.signals.map(s => `
     <div style="margin:10px;padding:10px;border:1px solid #ccc">
       <h3>${s.symbol}</h3>
-      <p>Price: ${s.price.toFixed(2)}</p>
+      <p>Price: ${Number(s.price).toFixed(2)}</p>
       <p>Signal: <b>${s.signal}</b></p>
     </div>
   `).join('');
 }
 </script>
+
+</body>
+</html>

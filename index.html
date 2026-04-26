@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Simo Screener</title>
+</head>
+<body>
+
+<h1>Simo Screener</h1>
+
+<button onclick="refreshData()">Refresh</button>
+
+<pre id="output">No data</pre>
+
+<script>
+async function refreshData() {
+  try {
+    const res = await fetch('/api/refresh');
+    const data = await res.json();
+    document.getElementById('output').innerText = JSON.stringify(data, null, 2);
+  } catch (err) {
+    document.getElementById('output').innerText = 'Error: ' + err;
+  }
+}
+</script>
+
+</body>
+</html>

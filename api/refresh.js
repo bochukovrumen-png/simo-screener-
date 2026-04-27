@@ -5,7 +5,13 @@ export default async function handler(req, res) {
     const results = await Promise.all(
       symbols.map(async (symbol) => {
         const r = await fetch(
-          `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`
+          `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
+          {
+            headers: {
+              "User-Agent": "Mozilla/5.0",
+              "Accept": "application/json"
+            }
+          }
         );
 
         const data = await r.json();

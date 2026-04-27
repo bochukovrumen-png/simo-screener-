@@ -1,24 +1,18 @@
 export default async function handler(req, res) {
   try {
-    const symbols = ["BTCUSDT", "ETHUSDT"];
+    const symbols = ["BTC", "ETH"];
 
     const results = await Promise.all(
       symbols.map(async (symbol) => {
         const r = await fetch(
-          `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
-          {
-            headers: {
-              "User-Agent": "Mozilla/5.0",
-              "Accept": "application/json"
-            }
-          }
+          `https://api.coinbase.com/v2/prices/${symbol}-USD/spot`
         );
 
         const data = await r.json();
 
         return {
-          symbol,
-          price: data.price ? parseFloat(data.price) : null,
+          symbol: symbol + "USDT",
+          price: parseFloat(data.data.amount),
           signal: Math.random() > 0.5 ? "BUY" : "SELL"
         };
       })

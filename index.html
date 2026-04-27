@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>PRO Trading Screener</title>
+  <title>Simo Trading PRO</title>
 
   <style>
     body {
@@ -11,14 +11,13 @@
       color: white;
     }
 
-    /* LAYOUT */
     .app {
       display: grid;
-      grid-template-columns: 260px 1fr 320px;
+      grid-template-columns: 260px 1fr 360px;
       height: 100vh;
     }
 
-    /* SIDEBAR */
+    /* LEFT */
     .sidebar {
       background: #0f172a;
       padding: 10px;
@@ -29,44 +28,58 @@
       padding: 10px;
       margin: 5px 0;
       background: #1e293b;
+      border-radius: 8px;
       cursor: pointer;
-      border-radius: 6px;
     }
 
     .coin:hover {
       background: #334155;
     }
 
-    /* MAIN CHART AREA */
+    /* CENTER */
     .main {
-      padding: 20px;
+      padding: 15px;
     }
 
     .chart {
-      height: 500px;
-      background: #111827;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: gray;
+      border-radius: 12px;
+      overflow: hidden;
+      height: 520px;
     }
 
     /* RIGHT PANEL */
     .right {
       background: #0f172a;
       padding: 10px;
+      overflow-y: auto;
     }
 
-    .stat {
-      background: #1e293b;
+    .box {
+      background: #111827;
       padding: 10px;
+      border-radius: 10px;
       margin-bottom: 10px;
-      border-radius: 8px;
     }
 
-    .buy { color: #22c55e; }
-    .sell { color: #ef4444; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    td {
+      padding: 6px;
+      border-bottom: 1px solid #1f2937;
+    }
+
+    .green {
+      color: #22c55e;
+      font-weight: bold;
+    }
+
+    .red {
+      color: #ef4444;
+    }
 
     .header {
       padding: 10px;
@@ -78,7 +91,7 @@
 <body>
 
 <div class="header">
-  <b>PRO TradingView Screener (Clone UI)</b>
+  <b>Simo Trading PRO</b>
 </div>
 
 <div class="app">
@@ -92,74 +105,99 @@
   <!-- CENTER -->
   <div class="main">
     <h3 id="selected">Select Coin</h3>
-    <iframe
-  id="tv"
-  width="100%"
-  height="500"
-  frameborder="0"
-  src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark&interval=5"
-></iframe>
-      📈 Trading Chart Area (next step: real TradingView chart)
+
+    <div class="chart">
+      <iframe id="chart"
+        width="100%"
+        height="520"
+        frameborder="0"
+        src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark&interval=5">
+      </iframe>
     </div>
   </div>
 
   <!-- RIGHT -->
   <div class="right">
-    <h3>Stats</h3>
-    <div class="stat">BUY: <span id="buy">0</span></div>
-    <div class="stat">SELL: <span id="sell">0</span></div>
-    <div class="stat">TOTAL: <span id="total">0</span></div>
+
+    <div class="box">
+      <h3>Trade Journal</h3>
+
+      <table>
+        <tr><td>Coin</td><td id="tcoin">-</td></tr>
+        <tr><td>Entry</td><td id="entry">-</td></tr>
+        <tr><td>Stop Loss (-3%)</td><td id="sl">-</td></tr>
+        <tr>
+          <td>Profit (R)</td>
+          <td id="profit" class="green">-</td>
+        </tr>
+      </table>
+    </div>
+
   </div>
 
 </div>
 
 <script>
+
 let coins = [];
 
-function getSignal(price) {
-  return price % 2 === 0 ? "BUY" : "SELL";
+function calculateTrade(price) {
+  const entry = price;
+  const sl = price * 0.97;
+
+  // fake move simulation (demo logic)
+  const current = price * (1 + (Math.random() * 0.06 - 0.02));
+
+  const risk = entry - sl;
+  const reward = current - entry;
+
+  const r = reward / risk;
+
+  return {
+    entry,
+    sl,
+    r
+  };
 }
 
 function render() {
   const list = document.getElementById("list");
 
-  let buy = 0;
-  let sell = 0;
-
-  list.innerHTML = coins.map(c => {
-    const signal = getSignal(c.price);
-
-    if (signal === "BUY") buy++;
-    if (signal === "SELL") sell++;
-
-    return `
-      <div class="coin" onclick="selectCoin('${c.symbol}')">
-        <b>${c.symbol}</b><br/>
-        $${c.price.toFixed(2)}<br/>
-        <span class="${signal === 'BUY' ? 'buy' : 'sell'}">${signal}</span>
-      </div>
-    `;
-  }).join('');
-
-  document.getElementById("buy").innerText = buy;
-  document.getElementById("sell").innerText = sell;
-  document.getElementById("total").innerText = coins.length;
+  list.innerHTML = coins.map(c => `
+    <div class="coin" onclick="selectCoin('${c.symbol}', ${c.price})">
+      <b>${c.symbol}</b><br/>
+      $${c.price.toFixed(2)}
+    </div>
+  `).join('');
 }
 
-function selectCoin(symbol) {
+function selectCoin(symbol, price) {
+
+  // 1. update chart
   document.getElementById("selected").innerText = symbol;
+
+  document.getElementById("chart").src =
+    `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark&interval=5`;
+
+  // 2. trade logic
+  const trade = calculateTrade(price);
+
+  document.getElementById("tcoin").innerText = symbol;
+  document.getElementById("entry").innerText = trade.entry.toFixed(2);
+  document.getElementById("sl").innerText = trade.sl.toFixed(2);
+  document.getElementById("profit").innerText = trade.r.toFixed(2);
 }
 
 async function load() {
   const res = await fetch("/api/refresh");
   const data = await res.json();
-
   coins = data.coins;
   render();
 }
 
 setInterval(load, 5000);
 load();
+
 </script>
 
 </body>

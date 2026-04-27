@@ -2,47 +2,126 @@
 <html>
 <head>
   <title>Simo Screener PRO</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+    }
+
+    header {
+      padding: 20px;
+      background: #020617;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .stats {
+      display: flex;
+      gap: 20px;
+    }
+
+    .stat {
+      background: #1e293b;
+      padding: 10px 15px;
+      border-radius: 8px;
+    }
+
+    .controls {
+      padding: 15px;
+    }
+
+    button {
+      margin-right: 10px;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .buy { background: #16a34a; color: white; }
+    .sell { background: #dc2626; color: white; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px;
+      text-align: left;
+    }
+
+    tr:nth-child(even) {
+      background: #1e293b;
+    }
+
+    .chart {
+      height: 40px;
+    }
+
+    .container {
+      padding: 20px;
+    }
+  </style>
 </head>
 
 <body>
 
-<h1>Simo Screener PRO (Top 100)</h1>
+<header>
+  <h1>Simo Screener PRO</h1>
 
-<button onclick="setFilter('ALL')">ALL</button>
-<button onclick="setFilter('BUY')">BUY</button>
-<button onclick="setFilter('SELL')">SELL</button>
+  <div class="stats">
+    <div class="stat">BUY: <span id="buyCount">0</span></div>
+    <div class="stat">SELL: <span id="sellCount">0</span></div>
+  </div>
+</header>
 
-<p>PNL: <span id="pnl">0</span>%</p>
+<div class="controls">
+  <button onclick="setFilter('ALL')">ALL</button>
+  <button class="buy" onclick="setFilter('BUY')">BUY</button>
+  <button class="sell" onclick="setFilter('SELL')">SELL</button>
+</div>
 
-<table border="1" cellpadding="6">
-  <thead>
-    <tr>
-      <th>Coin</th>
-      <th>Price</th>
-      <th>Signal</th>
-    </tr>
-  </thead>
-  <tbody id="table"></tbody>
-</table>
+<div class="container">
+  <table>
+    <thead>
+      <tr>
+        <th>Coin</th>
+        <th>Price</th>
+        <th>Signal</th>
+        <th>Chart</th>
+      </tr>
+    </thead>
+    <tbody id="table"></tbody>
+  </table>
+</div>
 
 <script>
 let history = {};
 let filter = "ALL";
-let trades = [];
 
 function setFilter(f) {
   filter = f;
 }
 
-function calculateEMA(prices, period) {
+function ema(prices, period) {
   const k = 2 / (period + 1);
-  let ema = prices[0];
+  let val = prices[0];
 
   for (let i = 1; i < prices.length; i++) {
-    ema = prices[i] * k + ema * (1 - k);
+    val = prices[i] * k + val * (1 - k);
   }
 
-  return ema;
+  return val;
 }
 
 function getSignal(symbol, price) {
@@ -50,71 +129,60 @@ function getSignal(symbol, price) {
 
   history[symbol].push(price);
 
-  if (history[symbol].length > 30) {
-    history[symbol].shift();
-  }
+  if (history[symbol].length > 30) history[symbol].shift();
 
   if (history[symbol].length < 21) return "WAIT";
 
-  const ema9 = calculateEMA(history[symbol].slice(-9), 9);
-  const ema21 = calculateEMA(history[symbol].slice(-21), 21);
+  const e9 = ema(history[symbol].slice(-9), 9);
+  const e21 = ema(history[symbol].slice(-21), 21);
 
-  if (ema9 > ema21) return "BUY";
-  if (ema9 < ema21) return "SELL";
+  if (e9 > e21) return "BUY";
+  if (e9 < e21) return "SELL";
   return "WAIT";
 }
 
-function updatePNL() {
-  let pnl = 0;
+function sparkline(prices) {
+  const max = Math.max(...prices);
+  const min = Math.min(...prices);
 
-  trades.forEach(t => {
-    if (t.exit) {
-      pnl += ((t.exit - t.entry) / t.entry) * 100;
-    }
-  });
-
-  document.getElementById('pnl').innerText = pnl.toFixed(2);
-}
-
-function handleTrade(symbol, signal, price) {
-  let last = trades.find(t => t.symbol === symbol && !t.exit);
-
-  if (signal === "BUY" && !last) {
-    trades.push({ symbol, entry: price });
-  }
-
-  if (signal === "SELL" && last) {
-    last.exit = price;
-  }
+  return prices.map(p => {
+    const h = ((p - min) / (max - min)) * 40;
+    return `<div style="width:2px;height:${h}px;background:#3b82f6;display:inline-block"></div>`;
+  }).join('');
 }
 
 async function refreshData() {
   const res = await fetch('/api/refresh');
   const data = await res.json();
 
-  const table = document.getElementById('table');
+  let buy = 0;
+  let sell = 0;
 
-  table.innerHTML = data.coins.map(c => {
+  const rows = data.coins.map(c => {
     const signal = getSignal(c.symbol, c.price);
 
-    handleTrade(c.symbol, signal, c.price);
+    if (signal === "BUY") buy++;
+    if (signal === "SELL") sell++;
 
     if (filter !== "ALL" && signal !== filter) return "";
 
-    let color = "white";
-    if (signal === "BUY") color = "#c8f7c5";
-    if (signal === "SELL") color = "#f7c5c5";
+    const prices = history[c.symbol] || [];
 
     return `
-      <tr style="background:${color}">
+      <tr>
         <td>${c.symbol}</td>
         <td>${c.price.toFixed(2)}</td>
-        <td><b>${signal}</b></td>
+        <td style="color:${signal === 'BUY' ? '#22c55e' : signal === 'SELL' ? '#ef4444' : 'gray'}">
+          ${signal}
+        </td>
+        <td class="chart">${sparkline(prices)}</td>
       </tr>
     `;
   }).join('');
 
-  updatePNL();
+  document.getElementById('table').innerHTML = rows;
+  document.getElementById('buyCount').innerText = buy;
+  document.getElementById('sellCount').innerText = sell;
 }
 
 setInterval(refreshData, 5000);

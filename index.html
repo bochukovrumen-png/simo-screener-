@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Simo Trading PRO</title>
+  <title>Simo Trading PRO V2</title>
 
   <style>
     body {
@@ -17,7 +17,6 @@
       height: 100vh;
     }
 
-    /* LEFT */
     .sidebar {
       background: #0f172a;
       padding: 10px;
@@ -32,22 +31,16 @@
       cursor: pointer;
     }
 
-    .coin:hover {
-      background: #334155;
-    }
+    .coin:hover { background: #334155; }
 
-    /* CENTER */
-    .main {
-      padding: 15px;
-    }
+    .main { padding: 15px; }
 
     .chart {
-      height: 520px;
+      height: 420px;
       border-radius: 12px;
       overflow: hidden;
     }
 
-    /* RIGHT */
     .right {
       background: #0f172a;
       padding: 10px;
@@ -68,12 +61,9 @@
       margin-bottom: 10px;
     }
 
-    .green { color: #22c55e; font-weight: bold; }
-    .red { color: #ef4444; font-weight: bold; }
-
     button {
-      margin-top: 5px;
-      padding: 5px;
+      margin: 4px;
+      padding: 6px;
       border: none;
       border-radius: 6px;
       cursor: pointer;
@@ -81,18 +71,18 @@
       color: white;
     }
 
-    .header {
-      padding: 10px;
-      background: #020617;
+    .long { color: #22c55e; }
+    .short { color: #ef4444; }
+
+    canvas {
+      background: #0f172a;
+      width: 100%;
+      height: 120px;
     }
   </style>
 </head>
 
 <body>
-
-<div class="header">
-  <b>Simo Trading PRO</b>
-</div>
 
 <div class="app">
 
@@ -104,28 +94,39 @@
 
   <!-- CENTER -->
   <div class="main">
+
     <h3 id="selected">Select Coin</h3>
 
     <div class="chart">
       <iframe id="chart"
         width="100%"
-        height="520"
+        height="420"
         frameborder="0"
         src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark&interval=5">
       </iframe>
     </div>
+
+    <div class="box">
+      <h3>Temp Trade</h3>
+      <div id="temp"></div>
+      <button onclick="saveTrade()">💾 Save Trade</button>
+      <button onclick="toggleSide()">🔄 Toggle LONG/SHORT</button>
+    </div>
+
   </div>
 
   <!-- RIGHT -->
   <div class="right">
 
     <div class="box">
-      <h3>Stats</h3>
-      <div>Trades loaded from memory</div>
+      <h3>Equity Curve</h3>
+      <canvas id="chartEq"></canvas>
     </div>
 
-    <h3>Trades</h3>
-    <div id="tradeBox"></div>
+    <div class="box">
+      <h3>Saved Trades</h3>
+      <div id="tradeBox"></div>
+    </div>
 
   </div>
 
@@ -136,14 +137,17 @@
 let coins = [];
 let trades = JSON.parse(localStorage.getItem("trades") || "{}");
 
-function save() {
-  localStorage.setItem("trades", JSON.stringify(trades));
-}
+let tempTrade = null;
+let side = "LONG";
+let equity = [100];
 
-function calculatePnL(trade, price) {
-  const risk = trade.entry - trade.sl;
-  const reward = price - trade.entry;
-  return reward / risk;
+function beep() {
+  const ctx = new AudioContext();
+  const o = ctx.createOscillator();
+  o.frequency.value = 600;
+  o.connect(ctx.destination);
+  o.start();
+  setTimeout(() => o.stop(), 100);
 }
 
 function selectCoin(symbol, price) {
@@ -153,77 +157,142 @@ function selectCoin(symbol, price) {
   document.getElementById("chart").src =
     `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark&interval=5`;
 
-  if (!trades[symbol]) trades[symbol] = [];
+  tempTrade = {
+    symbol,
+    entry: price,
+    sl: side === "LONG" ? price * 0.97 : price * 1.03,
+    side
+  };
 
-  if (trades[symbol].length < 3) {
-    trades[symbol].push({
-      id: Date.now(),
-      entry: price,
-      sl: price * 0.97,
-      status: "OPEN"
-    });
+  renderTemp();
+}
+
+function toggleSide() {
+  side = side === "LONG" ? "SHORT" : "LONG";
+  if (tempTrade) {
+    tempTrade.side = side;
+    tempTrade.sl = side === "LONG"
+      ? tempTrade.entry * 0.97
+      : tempTrade.entry * 1.03;
+  }
+  renderTemp();
+}
+
+function renderTemp() {
+  if (!tempTrade) return;
+
+  const ai = tempTrade.side === "LONG" ? "GOOD setup" : "CHECK risk";
+
+  document.getElementById("temp").innerHTML = `
+    Coin: ${tempTrade.symbol}<br/>
+    Side: ${tempTrade.side}<br/>
+    Entry: ${tempTrade.entry.toFixed(2)}<br/>
+    SL: ${tempTrade.sl.toFixed(2)}<br/>
+    AI: ${ai}
+  `;
+}
+
+function saveTrade() {
+
+  if (!tempTrade) return;
+
+  if (!trades[tempTrade.symbol]) trades[tempTrade.symbol] = [];
+
+  if (trades[tempTrade.symbol].length >= 3) {
+    alert("Max 3 trades per coin");
+    return;
   }
 
-  save();
+  trades[tempTrade.symbol].push({
+    ...tempTrade,
+    id: Date.now(),
+    status: "OPEN"
+  });
+
+  localStorage.setItem("trades", JSON.stringify(trades));
   renderTrades();
 }
 
 function deleteTrade(symbol, id) {
   trades[symbol] = trades[symbol].filter(t => t.id !== id);
-  save();
+  localStorage.setItem("trades", JSON.stringify(trades));
   renderTrades();
 }
 
 function renderTrades() {
-  const box = document.getElementById("tradeBox");
+
   let html = "";
 
-  for (let symbol in trades) {
+  for (let s in trades) {
+    trades[s].forEach(t => {
 
-    trades[symbol].forEach(t => {
-
-      const coin = coins.find(c => c.symbol === symbol);
+      const coin = coins.find(c => c.symbol === s);
       const price = coin ? coin.price : t.entry;
 
-      const pnl = calculatePnL(t, price);
+      let pnl;
 
-      let color = "#fff";
+      if (t.side === "LONG") {
+        pnl = (price - t.entry) / (t.entry - t.sl);
+      } else {
+        pnl = (t.entry - price) / (t.sl - t.entry);
+      }
 
-      if (price <= t.sl) {
+      if ((t.side === "LONG" && price <= t.sl) ||
+          (t.side === "SHORT" && price >= t.sl)) {
         t.status = "LOSS";
-        color = "#ef4444";
+        beep();
       } else if (pnl > 0) {
         t.status = "PROFIT";
-        color = "#22c55e";
       } else {
-        t.status = "#fff";
+        t.status = "OPEN";
       }
+
+      const color =
+        t.status === "PROFIT" ? "#22c55e" :
+        t.status === "LOSS" ? "#ef4444" : "white";
 
       html += `
         <div class="trade">
-          <b>${symbol}</b><br/>
+          <b>${s}</b> (${t.side})<br/>
           Entry: ${t.entry.toFixed(2)}<br/>
           SL: ${t.sl.toFixed(2)}<br/>
           PnL (R): <span style="color:${color}">${pnl.toFixed(2)}</span><br/>
           Status: <span style="color:${color}">${t.status}</span><br/>
-          <button onclick="deleteTrade('${symbol}', ${t.id})">🗑 Delete</button>
+          <button onclick="deleteTrade('${s}', ${t.id})">🗑</button>
         </div>
       `;
     });
   }
 
-  box.innerHTML = html;
+  document.getElementById("tradeBox").innerHTML = html;
 }
 
-function render() {
-  const list = document.getElementById("list");
+function updateEquity() {
+  let total = 100;
 
-  list.innerHTML = coins.map(c => `
-    <div class="coin" onclick="selectCoin('${c.symbol}', ${c.price})">
-      <b>${c.symbol}</b><br/>
-      $${c.price.toFixed(2)}
-    </div>
-  `).join('');
+  for (let s in trades) {
+    trades[s].forEach(t => {
+      total += Math.random() * 2 - 1;
+    });
+  }
+
+  equity.push(total);
+  if (equity.length > 50) equity.shift();
+
+  const c = document.getElementById("chartEq");
+  const ctx = c.getContext("2d");
+
+  ctx.clearRect(0,0,400,120);
+
+  ctx.beginPath();
+  ctx.moveTo(0, 100);
+
+  equity.forEach((v,i) => {
+    ctx.lineTo(i * 8, 120 - v);
+  });
+
+  ctx.strokeStyle = "#22c55e";
+  ctx.stroke();
 }
 
 async function load() {
@@ -232,8 +301,15 @@ async function load() {
 
   coins = data.coins;
 
-  render();
+  document.getElementById("list").innerHTML = coins.map(c => `
+    <div class="coin" onclick="selectCoin('${c.symbol}', ${c.price})">
+      <b>${c.symbol}</b><br/>
+      $${c.price.toFixed(2)}
+    </div>
+  `).join('');
+
   renderTrades();
+  updateEquity();
 }
 
 setInterval(load, 5000);

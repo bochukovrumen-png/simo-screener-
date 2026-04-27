@@ -42,12 +42,12 @@
     }
 
     .chart {
+      height: 520px;
       border-radius: 12px;
       overflow: hidden;
-      height: 520px;
     }
 
-    /* RIGHT PANEL */
+    /* RIGHT */
     .right {
       background: #0f172a;
       padding: 10px;
@@ -61,24 +61,24 @@
       margin-bottom: 10px;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
+    .trade {
+      background: #111827;
+      padding: 10px;
+      border-radius: 10px;
+      margin-bottom: 10px;
     }
 
-    td {
-      padding: 6px;
-      border-bottom: 1px solid #1f2937;
-    }
+    .green { color: #22c55e; font-weight: bold; }
+    .red { color: #ef4444; font-weight: bold; }
 
-    .green {
-      color: #22c55e;
-      font-weight: bold;
-    }
-
-    .red {
-      color: #ef4444;
+    button {
+      margin-top: 5px;
+      padding: 5px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #334155;
+      color: white;
     }
 
     .header {
@@ -120,18 +120,12 @@
   <div class="right">
 
     <div class="box">
-      <h3>Trade Journal</h3>
-
-      <table>
-        <tr><td>Coin</td><td id="tcoin">-</td></tr>
-        <tr><td>Entry</td><td id="entry">-</td></tr>
-        <tr><td>Stop Loss (-3%)</td><td id="sl">-</td></tr>
-        <tr>
-          <td>Profit (R)</td>
-          <td id="profit" class="green">-</td>
-        </tr>
-      </table>
+      <h3>Stats</h3>
+      <div>Trades loaded from memory</div>
     </div>
+
+    <h3>Trades</h3>
+    <div id="tradeBox"></div>
 
   </div>
 
@@ -140,24 +134,85 @@
 <script>
 
 let coins = [];
+let trades = JSON.parse(localStorage.getItem("trades") || "{}");
 
-function calculateTrade(price) {
-  const entry = price;
-  const sl = price * 0.97;
+function save() {
+  localStorage.setItem("trades", JSON.stringify(trades));
+}
 
-  // fake move simulation (demo logic)
-  const current = price * (1 + (Math.random() * 0.06 - 0.02));
+function calculatePnL(trade, price) {
+  const risk = trade.entry - trade.sl;
+  const reward = price - trade.entry;
+  return reward / risk;
+}
 
-  const risk = entry - sl;
-  const reward = current - entry;
+function selectCoin(symbol, price) {
 
-  const r = reward / risk;
+  document.getElementById("selected").innerText = symbol;
 
-  return {
-    entry,
-    sl,
-    r
-  };
+  document.getElementById("chart").src =
+    `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark&interval=5`;
+
+  if (!trades[symbol]) trades[symbol] = [];
+
+  if (trades[symbol].length < 3) {
+    trades[symbol].push({
+      id: Date.now(),
+      entry: price,
+      sl: price * 0.97,
+      status: "OPEN"
+    });
+  }
+
+  save();
+  renderTrades();
+}
+
+function deleteTrade(symbol, id) {
+  trades[symbol] = trades[symbol].filter(t => t.id !== id);
+  save();
+  renderTrades();
+}
+
+function renderTrades() {
+  const box = document.getElementById("tradeBox");
+  let html = "";
+
+  for (let symbol in trades) {
+
+    trades[symbol].forEach(t => {
+
+      const coin = coins.find(c => c.symbol === symbol);
+      const price = coin ? coin.price : t.entry;
+
+      const pnl = calculatePnL(t, price);
+
+      let color = "#fff";
+
+      if (price <= t.sl) {
+        t.status = "LOSS";
+        color = "#ef4444";
+      } else if (pnl > 0) {
+        t.status = "PROFIT";
+        color = "#22c55e";
+      } else {
+        t.status = "#fff";
+      }
+
+      html += `
+        <div class="trade">
+          <b>${symbol}</b><br/>
+          Entry: ${t.entry.toFixed(2)}<br/>
+          SL: ${t.sl.toFixed(2)}<br/>
+          PnL (R): <span style="color:${color}">${pnl.toFixed(2)}</span><br/>
+          Status: <span style="color:${color}">${t.status}</span><br/>
+          <button onclick="deleteTrade('${symbol}', ${t.id})">🗑 Delete</button>
+        </div>
+      `;
+    });
+  }
+
+  box.innerHTML = html;
 }
 
 function render() {
@@ -171,28 +226,14 @@ function render() {
   `).join('');
 }
 
-function selectCoin(symbol, price) {
-
-  // 1. update chart
-  document.getElementById("selected").innerText = symbol;
-
-  document.getElementById("chart").src =
-    `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark&interval=5`;
-
-  // 2. trade logic
-  const trade = calculateTrade(price);
-
-  document.getElementById("tcoin").innerText = symbol;
-  document.getElementById("entry").innerText = trade.entry.toFixed(2);
-  document.getElementById("sl").innerText = trade.sl.toFixed(2);
-  document.getElementById("profit").innerText = trade.r.toFixed(2);
-}
-
 async function load() {
   const res = await fetch("/api/refresh");
   const data = await res.json();
+
   coins = data.coins;
+
   render();
+  renderTrades();
 }
 
 setInterval(load, 5000);

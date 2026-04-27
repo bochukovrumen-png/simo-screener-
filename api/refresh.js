@@ -7,18 +7,19 @@ export default async function handler(req, res) {
         const r = await fetch(
           `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`
         );
+
         const data = await r.json();
 
         return {
           symbol,
-          price: parseFloat(data.price), // 👈 FIX
+          price: data.price ? parseFloat(data.price) : null,
           signal: Math.random() > 0.5 ? "BUY" : "SELL"
         };
       })
     );
 
     res.status(200).json({ signals: results });
-  } catch (e) {
-    res.status(500).json({ error: "API error" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 }

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>PRO Trading Journal AI</title>
+  <title>Trading Journal PRO</title>
 
   <style>
     body {
@@ -18,10 +18,10 @@
       background: #020617;
     }
 
-    .btn {
-      padding: 6px 12px;
+    .user {
+      padding: 8px 15px;
       background: #1e293b;
-      border-radius: 6px;
+      border-radius: 8px;
       cursor: pointer;
     }
 
@@ -70,33 +70,33 @@
     .trade {
       background: #111827;
       padding: 10px;
-      margin-bottom: 10px;
       border-radius: 10px;
+      margin-bottom: 10px;
     }
 
-    .green { color: #22c55e; }
-    .red { color: #ef4444; }
-
-    input {
-      width: 50px;
-      background: #0f172a;
+    button {
+      margin-top: 5px;
+      padding: 6px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      background: #334155;
       color: white;
-      border: 1px solid #334155;
-      text-align: center;
     }
+
+    .long { color: #22c55e; }
+    .short { color: #ef4444; }
+
+    .ai-good { color: #22c55e; }
+    .ai-bad { color: #ef4444; }
   </style>
 </head>
 
 <body>
 
-<!-- USERS -->
 <div class="top">
-  <div class="btn active" onclick="setUser('Rumen')">Rumen</div>
-  <div class="btn" onclick="setUser('Goro')">Goro</div>
-
-  <div class="btn" onclick="setCat('crypto')">Crypto</div>
-  <div class="btn" onclick="setCat('stocks')">Stocks</div>
-  <div class="btn" onclick="setCat('assets')">Assets</div>
+  <div class="user active" onclick="switchUser('Rumen')">Rumen</div>
+  <div class="user" onclick="switchUser('Goro')">Goro</div>
 </div>
 
 <div class="app">
@@ -109,6 +109,7 @@
 
   <!-- CENTER -->
   <div class="main">
+    <h2 id="title">Rumen</h2>
 
     <h3 id="selected">Select asset</h3>
 
@@ -120,26 +121,24 @@
     </iframe>
 
     <div class="box">
-      <h3>Trade Setup</h3>
-
+      <h3>Current Trade</h3>
       <div id="temp"></div>
 
-      SL %:
-      <input id="slInput" value="3" />
-
       <button onclick="flip()">🔄 Flip LONG/SHORT</button>
-      <button onclick="save()">💾 Save</button>
+      <button onclick="saveTrade()">💾 Save Trade</button>
     </div>
-
   </div>
 
   <!-- RIGHT -->
   <div class="right">
 
     <div class="box">
-      <h3>Trades</h3>
-      <div id="trades"></div>
+      <h3>AI Signal</h3>
+      <div id="ai"></div>
     </div>
+
+    <h3>Trades</h3>
+    <div id="trades"></div>
 
   </div>
 
@@ -147,8 +146,7 @@
 
 <script>
 
-let user = "Rumen";
-let cat = "crypto";
+let currentUser = "Rumen";
 
 let store = {
   Rumen: [],
@@ -159,137 +157,142 @@ let assets = [];
 let temp = null;
 let side = "LONG";
 
-function setUser(u){
-  user = u;
-  document.querySelectorAll(".btn").forEach(b=>b.classList.remove("active"));
+function switchUser(u) {
+  currentUser = u;
+
+  document.querySelectorAll(".user").forEach(e => e.classList.remove("active"));
   event.target.classList.add("active");
-  render();
+
+  document.getElementById("title").innerText = u;
+
+  renderTrades();
 }
 
-function setCat(c){
-  cat = c;
-  render();
-}
-
-function slPrice(price, percent, side){
-
-  percent = parseFloat(percent);
-
-  if(side === "LONG"){
-    return price * (1 - percent/100);
-  } else {
-    return price * (1 + percent/100);
+function ema(arr, p) {
+  const k = 2 / (p + 1);
+  let v = arr[0];
+  for (let i = 1; i < arr.length; i++) {
+    v = arr[i] * k + v * (1 - k);
   }
+  return v;
 }
 
-function rr(entry, sl, current, side){
+function aiCheck(prices) {
 
-  let risk = Math.abs(entry - sl);
-  let reward;
+  const e9 = ema(prices, 9);
+  const e20 = ema(prices, 20);
+  const e50 = ema(prices, 50);
+  const e200 = ema(prices, 50);
 
-  if(side === "LONG"){
-    reward = current - entry;
-  } else {
-    reward = entry - current;
-  }
+  const range = Math.max(...prices) - Math.min(...prices);
+  const consolidation = range < prices[0] * 0.03;
 
-  return reward / risk;
+  if (e9 > e20 && e20 > e50 && e50 > e200 && consolidation)
+    return {text:"GOOD LONG", ok:true};
+
+  if (e200 > e50 && e50 > e20 && e20 > e9 && consolidation)
+    return {text:"GOOD SHORT", ok:true};
+
+  return {text:"NO SETUP", ok:false};
 }
 
-function select(symbol, price){
+function select(symbol, price) {
 
   document.getElementById("selected").innerText = symbol;
 
   document.getElementById("chart").src =
     `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark&interval=5`;
 
-  let slp = document.getElementById("slInput").value;
+  const prices = Array.from({length: 60}, () =>
+    price * (1 + (Math.random() - 0.5) * 0.05)
+  );
+
+  const ai = aiCheck(prices);
 
   temp = {
     symbol,
     entry: price,
-    side,
-    slPercent: slp
+    sl: side === "LONG" ? price * 0.97 : price * 1.03,
+    side
   };
+
+  document.getElementById("ai").innerHTML =
+    `<span class="${ai.ok ? 'ai-good' : 'ai-bad'}">${ai.text}</span>`;
 
   document.getElementById("temp").innerHTML =
     `${symbol}<br/>Entry: ${price}<br/>Side: ${side}`;
 }
 
-function flip(){
+function flip() {
   side = side === "LONG" ? "SHORT" : "LONG";
+  if (temp) {
+    temp.side = side;
+    temp.sl = side === "LONG" ? temp.entry * 0.97 : temp.entry * 1.03;
+  }
+  document.getElementById("temp").innerHTML =
+    `${temp.symbol}<br/>Entry: ${temp.entry}<br/>Side: ${side}`;
 }
 
-function save(){
-  store[user].push(temp);
+function saveTrade() {
+
+  if (!store[currentUser]) store[currentUser] = [];
+
+  if (store[currentUser].length >= 50) {
+    alert("Max 50 trades");
+    return;
+  }
+
+  store[currentUser].push({
+    ...temp,
+    id: Date.now(),
+    status: "OPEN"
+  });
+
   renderTrades();
 }
 
-function del(i){
-  store[user].splice(i,1);
+function del(id) {
+  store[currentUser] =
+    store[currentUser].filter(t => t.id !== id);
+
   renderTrades();
 }
 
-function renderTrades(){
+function renderTrades() {
 
-  document.getElementById("trades").innerHTML =
-  store[user].map((t,i)=>{
+  const box = document.getElementById("trades");
 
-    let sl = slPrice(t.entry, t.slPercent, t.side);
+  box.innerHTML = (store[currentUser] || []).map(t => {
 
-    let current = t.entry * (1 + (Math.random()-0.5)*0.05);
-
-    let pnl = rr(t.entry, sl, current, t.side);
-
-    let status = "OPEN";
-
-    if(t.side==="LONG" && current < sl) status="LOSS";
-    if(t.side==="SHORT" && current > sl) status="LOSS";
+    const color = t.side === "LONG" ? "#22c55e" : "#ef4444";
 
     return `
       <div class="trade">
-        <b>${t.symbol} (${t.side})</b><br/>
+        <b style="color:${color}">${t.symbol} (${t.side})</b><br/>
         Entry: ${t.entry}<br/>
-        SL: ${sl.toFixed(2)}<br/>
-
-        R: <span class="${pnl>0?'green':'red'}">${pnl.toFixed(2)}</span><br/>
-
-        Status: <span class="${status==='LOSS'?'red':'green'}">${status}</span><br/>
-
-        <button onclick="del(${i})">🗑</button>
+        SL: ${t.sl}<br/>
+        <button onclick="del(${t.id})">🗑</button>
       </div>
     `;
   }).join('');
 }
 
-function render(){
+async function load() {
+  const res = await fetch("/api/refresh");
+  const data = await res.json();
 
-  let list = document.getElementById("list");
+  assets = data.coins;
 
-  let data = [];
-
-  if(cat === "crypto"){
-    data = ["BTC","ETH","SOL","XRP","DOGE","ADA","AVAX"];
-  }
-
-  if(cat === "stocks"){
-    data = ["AAPL","TSLA","NVDA","META","AMZN","MSFT"];
-  }
-
-  if(cat === "assets"){
-    data = ["GOLD","SILVER","OIL","SP500","DXY","EURUSD"];
-  }
-
-  list.innerHTML = data.map(s=>`
-    <div class="coin" onclick="select('${s}', 100)">
-      ${s}
-    </div>
-  `).join('');
-
-  renderTrades();
+  document.getElementById("list").innerHTML =
+    assets.map(a => `
+      <div class="coin" onclick="select('${a.symbol}', ${a.price})">
+        ${a.symbol}<br/>${a.price}
+      </div>
+    `).join('');
 }
 
-render();
+setInterval(load, 5000);
+load();
 
 </script>
 

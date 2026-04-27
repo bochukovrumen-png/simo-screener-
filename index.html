@@ -1,15 +1,38 @@
 <!DOCTYPE html>
 <html>
+<head>
+  <title>Simo Screener PRO</title>
+</head>
+
 <body>
 
-<h1>Simo Screener (Top 100)</h1>
+<h1>Simo Screener PRO (Top 100)</h1>
 
-<button onclick="refreshData()">Refresh</button>
+<button onclick="setFilter('ALL')">ALL</button>
+<button onclick="setFilter('BUY')">BUY</button>
+<button onclick="setFilter('SELL')">SELL</button>
 
-<div id="table"></div>
+<p>PNL: <span id="pnl">0</span>%</p>
+
+<table border="1" cellpadding="6">
+  <thead>
+    <tr>
+      <th>Coin</th>
+      <th>Price</th>
+      <th>Signal</th>
+    </tr>
+  </thead>
+  <tbody id="table"></tbody>
+</table>
 
 <script>
 let history = {};
+let filter = "ALL";
+let trades = [];
+
+function setFilter(f) {
+  filter = f;
+}
 
 function calculateEMA(prices, period) {
   const k = 2 / (period + 1);
@@ -27,7 +50,6 @@ function getSignal(symbol, price) {
 
   history[symbol].push(price);
 
-  // пазим последните 30 цени
   if (history[symbol].length > 30) {
     history[symbol].shift();
   }
@@ -42,26 +64,59 @@ function getSignal(symbol, price) {
   return "WAIT";
 }
 
+function updatePNL() {
+  let pnl = 0;
+
+  trades.forEach(t => {
+    if (t.exit) {
+      pnl += ((t.exit - t.entry) / t.entry) * 100;
+    }
+  });
+
+  document.getElementById('pnl').innerText = pnl.toFixed(2);
+}
+
+function handleTrade(symbol, signal, price) {
+  let last = trades.find(t => t.symbol === symbol && !t.exit);
+
+  if (signal === "BUY" && !last) {
+    trades.push({ symbol, entry: price });
+  }
+
+  if (signal === "SELL" && last) {
+    last.exit = price;
+  }
+}
+
 async function refreshData() {
   const res = await fetch('/api/refresh');
   const data = await res.json();
 
-  const container = document.getElementById('table');
+  const table = document.getElementById('table');
 
-  container.innerHTML = data.coins.map(c => {
+  table.innerHTML = data.coins.map(c => {
     const signal = getSignal(c.symbol, c.price);
 
+    handleTrade(c.symbol, signal, c.price);
+
+    if (filter !== "ALL" && signal !== filter) return "";
+
+    let color = "white";
+    if (signal === "BUY") color = "#c8f7c5";
+    if (signal === "SELL") color = "#f7c5c5";
+
     return `
-      <div style="margin:8px;padding:8px;border:1px solid #ccc">
-        <b>${c.symbol}</b> (${c.name})<br/>
-        Price: ${c.price.toFixed(2)}<br/>
-        Signal: <b>${signal}</b>
-      </div>
+      <tr style="background:${color}">
+        <td>${c.symbol}</td>
+        <td>${c.price.toFixed(2)}</td>
+        <td><b>${signal}</b></td>
+      </tr>
     `;
   }).join('');
+
+  updatePNL();
 }
 
-// авто refresh на 5 сек
 setInterval(refreshData, 5000);
 </script>
 

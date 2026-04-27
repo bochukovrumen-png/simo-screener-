@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>AI Trading Journal</title>
+  <title>Trading AI PRO</title>
 
   <style>
     body {
@@ -60,6 +60,13 @@
       overflow-y: auto;
     }
 
+    .box {
+      background: #111827;
+      padding: 10px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+
     .trade {
       background: #111827;
       padding: 10px;
@@ -67,18 +74,35 @@
       border-radius: 10px;
     }
 
-    .good { color: #22c55e; }
-    .bad { color: #ef4444; }
-    .ok { color: #facc15; }
+    button {
+      margin-top: 5px;
+      padding: 6px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #334155;
+      color: white;
+    }
 
+    .long { color: #22c55e; }
+    .short { color: #ef4444; }
+
+    canvas {
+      width: 100%;
+      height: 120px;
+      background: #0f172a;
+    }
+
+    @media(max-width:900px){
+      .app{grid-template-columns:1fr;}
+    }
   </style>
 </head>
 
 <body>
 
-<!-- USERS -->
 <div class="topbar">
-  <div class="user active" onclick="switchUser('Rumbe')">Rumbe</div>
+  <div class="user active" onclick="switchUser('Rumen')">Rumen</div>
   <div class="user" onclick="switchUser('Goro')">Goro</div>
 </div>
 
@@ -86,14 +110,15 @@
 
   <!-- LEFT -->
   <div class="sidebar">
-    <h3>Watchlist</h3>
+    <h3>Assets</h3>
     <div id="list"></div>
   </div>
 
   <!-- CENTER -->
   <div class="main">
-    <h2 id="title">User: Rumbe</h2>
-    <h3 id="selected">Select Coin</h3>
+
+    <h2 id="title">Rumen</h2>
+    <h3 id="selected">Select asset</h3>
 
     <iframe id="chart"
       width="100%"
@@ -101,141 +126,199 @@
       frameborder="0"
       src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark&interval=5">
     </iframe>
+
+    <div class="box">
+      <h3>Current Trade</h3>
+      <div id="temp"></div>
+      <button onclick="flip()">🔄 Flip LONG/SHORT</button>
+      <button onclick="saveTrade()">💾 Save</button>
+    </div>
+
   </div>
 
   <!-- RIGHT -->
   <div class="right">
-    <h3>AI Trade Signal</h3>
-    <div id="ai"></div>
+
+    <div class="box">
+      <h3>AI Signal</h3>
+      <div id="ai"></div>
+    </div>
+
+    <div class="box">
+      <h3>Equity</h3>
+      <canvas id="equity"></canvas>
+    </div>
 
     <h3>Trades</h3>
-    <div id="tradeBox"></div>
+    <div id="trades"></div>
+
   </div>
 
 </div>
 
 <script>
 
-let currentUser = "Rumbe";
-let dataStore = {
-  Rumbe: [],
+let user = "Rumen";
+
+let store = {
+  Rumen: [],
   Goro: []
 };
 
-let coins = [];
+let assets = [];
+let temp = null;
+let side = "LONG";
 
-function switchUser(u) {
-  currentUser = u;
+let equity = {
+  Rumen: [100],
+  Goro: [100]
+};
 
-  document.querySelectorAll(".user").forEach(el => el.classList.remove("active"));
+function switchUser(u){
+  user = u;
+  document.querySelectorAll(".user").forEach(x=>x.classList.remove("active"));
   event.target.classList.add("active");
-
-  document.getElementById("title").innerText = "User: " + u;
-
+  document.getElementById("title").innerText = u;
   renderTrades();
 }
 
-function ema(arr, period) {
-  const k = 2 / (period + 1);
-  let val = arr[0];
-  for (let i = 1; i < arr.length; i++) {
-    val = arr[i] * k + val * (1 - k);
+function ema(arr,p){
+  const k=2/(p+1);
+  let v=arr[0];
+  for(let i=1;i<arr.length;i++){
+    v=arr[i]*k+v*(1-k);
   }
-  return val;
+  return v;
 }
 
-function analyzeAI(prices) {
+function ai(prices){
 
-  if (prices.length < 50) return "NOT ENOUGH DATA";
+  const e9=ema(prices,9);
+  const e20=ema(prices,20);
+  const e50=ema(prices,50);
+  const e200=ema(prices,50);
 
-  const last = prices.slice(-50);
+  const cons = (Math.max(...prices)-Math.min(...prices))<prices[0]*0.03;
 
-  const e9 = ema(last.slice(-9), 9);
-  const e20 = ema(last.slice(-20), 20);
-  const e50 = ema(last.slice(-50), 50);
-  const e200 = ema(last, 50); // simplified demo
+  if(e9>e20&&e20>e50&&e50>e200&&cons)
+    return {t:"GOOD LONG",c:"long"};
 
-  const range = Math.max(...last) - Math.min(...last);
+  if(e200>e50&&e50>e20&&e20>e9&&cons)
+    return {t:"GOOD SHORT",c:"short"};
 
-  const consolidation = range < last[last.length - 1] * 0.03;
-
-  // LONG setup
-  if (e9 > e20 && e20 > e50 && e50 > e200 && consolidation) {
-    return { verdict: "GOOD LONG", type: "good" };
-  }
-
-  // SHORT setup
-  if (e200 > e50 && e50 > e20 && e20 > e9 && consolidation) {
-    return { verdict: "GOOD SHORT", type: "good" };
-  }
-
-  if (consolidation) {
-    return { verdict: "WAIT BREAKOUT", type: "ok" };
-  }
-
-  return { verdict: "AVOID TRADE", type: "bad" };
+  return {t:"NO SETUP",c:""};
 }
 
-function selectCoin(symbol, price) {
+function select(s,p){
 
-  document.getElementById("selected").innerText = symbol;
+  document.getElementById("selected").innerText=s;
 
-  document.getElementById("chart").src =
-    `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark&interval=5`;
+  document.getElementById("chart").src=
+  `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${s}USDT&theme=dark&interval=5`;
 
-  let userTrades = dataStore[currentUser];
+  let prices=Array.from({length:60},()=>p*(1+(Math.random()-0.5)*0.05));
 
-  let prices = Array.from({length: 60}, () => price * (1 + (Math.random() - 0.5) * 0.05));
+  let a=ai(prices);
 
-  let ai = analyzeAI(prices);
+  temp={
+    symbol:s,
+    entry:p,
+    sl:side==="LONG"?p*0.97:p*1.03,
+    side
+  };
 
-  document.getElementById("ai").innerHTML = `
-    <b class="${ai.type}">${ai.verdict}</b>
-  `;
+  document.getElementById("ai").innerHTML=
+  `<b class="${a.c}">${a.t}</b>`;
 
-  if (userTrades.length < 50) {
-    userTrades.push({
-      symbol,
-      entry: price,
-      ai: ai.verdict
-    });
+  document.getElementById("temp").innerHTML=
+  `${s}<br/>${p}<br/>${side}`;
+}
+
+function flip(){
+  side=side==="LONG"?"SHORT":"LONG";
+  if(temp){
+    temp.side=side;
+    temp.sl=side==="LONG"?temp.entry*0.97:temp.entry*1.03;
+  }
+}
+
+function saveTrade(){
+
+  if(store[user].length>=50){
+    alert("Max 50 trades");
+    return;
   }
 
+  store[user].push({...temp,id:Date.now()});
   renderTrades();
 }
 
-function renderTrades() {
+function del(id){
+  store[user]=store[user].filter(t=>t.id!==id);
+  renderTrades();
+}
 
-  let box = document.getElementById("tradeBox");
-  let trades = dataStore[currentUser];
+function renderTrades(){
 
-  box.innerHTML = trades.map(t => `
+  document.getElementById("trades").innerHTML=
+  store[user].map(t=>`
+
     <div class="trade">
-      <b>${t.symbol}</b><br/>
+      <b class="${t.side==="LONG"?"long":"short"}">${t.symbol} ${t.side}</b><br/>
       Entry: ${t.entry}<br/>
-      AI: <span class="${
-        t.ai.includes("GOOD") ? "good" :
-        t.ai.includes("WAIT") ? "ok" : "bad"
-      }">${t.ai}</span>
+      SL: ${t.sl}<br/>
+      <button onclick="del(${t.id})">🗑</button>
     </div>
-  `).join('');
+
+  `).join("");
 }
 
-async function load() {
-  const res = await fetch("/api/refresh");
-  const data = await res.json();
+function equityDraw(){
 
-  coins = data.coins;
+  let arr=equity[user];
 
-  document.getElementById("list").innerHTML = coins.map(c => `
-    <div class="coin" onclick="selectCoin('${c.symbol}', ${c.price})">
-      <b>${c.symbol}</b><br/>
-      $${c.price.toFixed(2)}
-    </div>
-  `).join('');
+  let c=document.getElementById("equity");
+  let ctx=c.getContext("2d");
+
+  ctx.clearRect(0,0,400,120);
+  ctx.beginPath();
+
+  ctx.moveTo(0,100);
+
+  arr.forEach((v,i)=>{
+    ctx.lineTo(i*8,120-v);
+  });
+
+  ctx.strokeStyle="#22c55e";
+  ctx.stroke();
 }
 
-setInterval(load, 5000);
+async function load(){
+
+  let r=await fetch("/api/refresh");
+  let d=await r.json();
+
+  assets=d.coins;
+
+  document.getElementById("list").innerHTML=
+  assets.map(a=>`
+    <div class="coin" onclick="select('${a.symbol}',${a.price})">
+      ${a.symbol}
+    </div>
+  `).join("");
+
+  let total=100;
+
+  store[user].forEach(()=>total+=Math.random()-0.5);
+
+  equity[user].push(total);
+  if(equity[user].length>40) equity[user].shift();
+
+  equityDraw();
+  renderTrades();
+}
+
+setInterval(load,4000);
 load();
 
 </script>

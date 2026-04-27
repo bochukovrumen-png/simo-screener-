@@ -4,21 +4,21 @@ export default async function handler(req, res) {
 
     const results = await Promise.all(
       symbols.map(async (symbol) => {
-        const response = await fetch(
+        const r = await fetch(
           `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`
         );
-        const data = await response.json();
+        const data = await r.json();
 
         return {
           symbol,
-          price: parseFloat(data.price),
+          price: parseFloat(data.price), // 👈 FIX
           signal: Math.random() > 0.5 ? "BUY" : "SELL"
         };
       })
     );
 
     res.status(200).json({ signals: results });
-  } catch (error) {
+  } catch (e) {
     res.status(500).json({ error: "API error" });
   }
 }

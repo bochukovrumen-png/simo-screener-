@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Simo Trading PRO V2</title>
+  <title>AI Trading Journal</title>
 
   <style>
     body {
@@ -11,10 +11,29 @@
       color: white;
     }
 
+    .topbar {
+      display: flex;
+      gap: 10px;
+      padding: 10px;
+      background: #020617;
+    }
+
+    .user {
+      padding: 8px 15px;
+      background: #1e293b;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .active {
+      background: #22c55e;
+      color: black;
+    }
+
     .app {
       display: grid;
       grid-template-columns: 260px 1fr 360px;
-      height: 100vh;
+      height: 95vh;
     }
 
     .sidebar {
@@ -31,14 +50,8 @@
       cursor: pointer;
     }
 
-    .coin:hover { background: #334155; }
-
-    .main { padding: 15px; }
-
-    .chart {
-      height: 420px;
-      border-radius: 12px;
-      overflow: hidden;
+    .main {
+      padding: 15px;
     }
 
     .right {
@@ -47,42 +60,27 @@
       overflow-y: auto;
     }
 
-    .box {
-      background: #111827;
-      padding: 10px;
-      border-radius: 10px;
-      margin-bottom: 10px;
-    }
-
     .trade {
       background: #111827;
       padding: 10px;
-      border-radius: 10px;
       margin-bottom: 10px;
+      border-radius: 10px;
     }
 
-    button {
-      margin: 4px;
-      padding: 6px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      background: #334155;
-      color: white;
-    }
+    .good { color: #22c55e; }
+    .bad { color: #ef4444; }
+    .ok { color: #facc15; }
 
-    .long { color: #22c55e; }
-    .short { color: #ef4444; }
-
-    canvas {
-      background: #0f172a;
-      width: 100%;
-      height: 120px;
-    }
   </style>
 </head>
 
 <body>
+
+<!-- USERS -->
+<div class="topbar">
+  <div class="user active" onclick="switchUser('Rumbe')">Rumbe</div>
+  <div class="user" onclick="switchUser('Goro')">Goro</div>
+</div>
 
 <div class="app">
 
@@ -94,60 +92,88 @@
 
   <!-- CENTER -->
   <div class="main">
-
+    <h2 id="title">User: Rumbe</h2>
     <h3 id="selected">Select Coin</h3>
 
-    <div class="chart">
-      <iframe id="chart"
-        width="100%"
-        height="420"
-        frameborder="0"
-        src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark&interval=5">
-      </iframe>
-    </div>
-
-    <div class="box">
-      <h3>Temp Trade</h3>
-      <div id="temp"></div>
-      <button onclick="saveTrade()">💾 Save Trade</button>
-      <button onclick="toggleSide()">🔄 Toggle LONG/SHORT</button>
-    </div>
-
+    <iframe id="chart"
+      width="100%"
+      height="420"
+      frameborder="0"
+      src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark&interval=5">
+    </iframe>
   </div>
 
   <!-- RIGHT -->
   <div class="right">
+    <h3>AI Trade Signal</h3>
+    <div id="ai"></div>
 
-    <div class="box">
-      <h3>Equity Curve</h3>
-      <canvas id="chartEq"></canvas>
-    </div>
-
-    <div class="box">
-      <h3>Saved Trades</h3>
-      <div id="tradeBox"></div>
-    </div>
-
+    <h3>Trades</h3>
+    <div id="tradeBox"></div>
   </div>
 
 </div>
 
 <script>
 
+let currentUser = "Rumbe";
+let dataStore = {
+  Rumbe: [],
+  Goro: []
+};
+
 let coins = [];
-let trades = JSON.parse(localStorage.getItem("trades") || "{}");
 
-let tempTrade = null;
-let side = "LONG";
-let equity = [100];
+function switchUser(u) {
+  currentUser = u;
 
-function beep() {
-  const ctx = new AudioContext();
-  const o = ctx.createOscillator();
-  o.frequency.value = 600;
-  o.connect(ctx.destination);
-  o.start();
-  setTimeout(() => o.stop(), 100);
+  document.querySelectorAll(".user").forEach(el => el.classList.remove("active"));
+  event.target.classList.add("active");
+
+  document.getElementById("title").innerText = "User: " + u;
+
+  renderTrades();
+}
+
+function ema(arr, period) {
+  const k = 2 / (period + 1);
+  let val = arr[0];
+  for (let i = 1; i < arr.length; i++) {
+    val = arr[i] * k + val * (1 - k);
+  }
+  return val;
+}
+
+function analyzeAI(prices) {
+
+  if (prices.length < 50) return "NOT ENOUGH DATA";
+
+  const last = prices.slice(-50);
+
+  const e9 = ema(last.slice(-9), 9);
+  const e20 = ema(last.slice(-20), 20);
+  const e50 = ema(last.slice(-50), 50);
+  const e200 = ema(last, 50); // simplified demo
+
+  const range = Math.max(...last) - Math.min(...last);
+
+  const consolidation = range < last[last.length - 1] * 0.03;
+
+  // LONG setup
+  if (e9 > e20 && e20 > e50 && e50 > e200 && consolidation) {
+    return { verdict: "GOOD LONG", type: "good" };
+  }
+
+  // SHORT setup
+  if (e200 > e50 && e50 > e20 && e20 > e9 && consolidation) {
+    return { verdict: "GOOD SHORT", type: "good" };
+  }
+
+  if (consolidation) {
+    return { verdict: "WAIT BREAKOUT", type: "ok" };
+  }
+
+  return { verdict: "AVOID TRADE", type: "bad" };
 }
 
 function selectCoin(symbol, price) {
@@ -157,142 +183,42 @@ function selectCoin(symbol, price) {
   document.getElementById("chart").src =
     `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark&interval=5`;
 
-  tempTrade = {
-    symbol,
-    entry: price,
-    sl: side === "LONG" ? price * 0.97 : price * 1.03,
-    side
-  };
+  let userTrades = dataStore[currentUser];
 
-  renderTemp();
-}
+  let prices = Array.from({length: 60}, () => price * (1 + (Math.random() - 0.5) * 0.05));
 
-function toggleSide() {
-  side = side === "LONG" ? "SHORT" : "LONG";
-  if (tempTrade) {
-    tempTrade.side = side;
-    tempTrade.sl = side === "LONG"
-      ? tempTrade.entry * 0.97
-      : tempTrade.entry * 1.03;
-  }
-  renderTemp();
-}
+  let ai = analyzeAI(prices);
 
-function renderTemp() {
-  if (!tempTrade) return;
-
-  const ai = tempTrade.side === "LONG" ? "GOOD setup" : "CHECK risk";
-
-  document.getElementById("temp").innerHTML = `
-    Coin: ${tempTrade.symbol}<br/>
-    Side: ${tempTrade.side}<br/>
-    Entry: ${tempTrade.entry.toFixed(2)}<br/>
-    SL: ${tempTrade.sl.toFixed(2)}<br/>
-    AI: ${ai}
+  document.getElementById("ai").innerHTML = `
+    <b class="${ai.type}">${ai.verdict}</b>
   `;
-}
 
-function saveTrade() {
-
-  if (!tempTrade) return;
-
-  if (!trades[tempTrade.symbol]) trades[tempTrade.symbol] = [];
-
-  if (trades[tempTrade.symbol].length >= 3) {
-    alert("Max 3 trades per coin");
-    return;
+  if (userTrades.length < 50) {
+    userTrades.push({
+      symbol,
+      entry: price,
+      ai: ai.verdict
+    });
   }
 
-  trades[tempTrade.symbol].push({
-    ...tempTrade,
-    id: Date.now(),
-    status: "OPEN"
-  });
-
-  localStorage.setItem("trades", JSON.stringify(trades));
-  renderTrades();
-}
-
-function deleteTrade(symbol, id) {
-  trades[symbol] = trades[symbol].filter(t => t.id !== id);
-  localStorage.setItem("trades", JSON.stringify(trades));
   renderTrades();
 }
 
 function renderTrades() {
 
-  let html = "";
+  let box = document.getElementById("tradeBox");
+  let trades = dataStore[currentUser];
 
-  for (let s in trades) {
-    trades[s].forEach(t => {
-
-      const coin = coins.find(c => c.symbol === s);
-      const price = coin ? coin.price : t.entry;
-
-      let pnl;
-
-      if (t.side === "LONG") {
-        pnl = (price - t.entry) / (t.entry - t.sl);
-      } else {
-        pnl = (t.entry - price) / (t.sl - t.entry);
-      }
-
-      if ((t.side === "LONG" && price <= t.sl) ||
-          (t.side === "SHORT" && price >= t.sl)) {
-        t.status = "LOSS";
-        beep();
-      } else if (pnl > 0) {
-        t.status = "PROFIT";
-      } else {
-        t.status = "OPEN";
-      }
-
-      const color =
-        t.status === "PROFIT" ? "#22c55e" :
-        t.status === "LOSS" ? "#ef4444" : "white";
-
-      html += `
-        <div class="trade">
-          <b>${s}</b> (${t.side})<br/>
-          Entry: ${t.entry.toFixed(2)}<br/>
-          SL: ${t.sl.toFixed(2)}<br/>
-          PnL (R): <span style="color:${color}">${pnl.toFixed(2)}</span><br/>
-          Status: <span style="color:${color}">${t.status}</span><br/>
-          <button onclick="deleteTrade('${s}', ${t.id})">🗑</button>
-        </div>
-      `;
-    });
-  }
-
-  document.getElementById("tradeBox").innerHTML = html;
-}
-
-function updateEquity() {
-  let total = 100;
-
-  for (let s in trades) {
-    trades[s].forEach(t => {
-      total += Math.random() * 2 - 1;
-    });
-  }
-
-  equity.push(total);
-  if (equity.length > 50) equity.shift();
-
-  const c = document.getElementById("chartEq");
-  const ctx = c.getContext("2d");
-
-  ctx.clearRect(0,0,400,120);
-
-  ctx.beginPath();
-  ctx.moveTo(0, 100);
-
-  equity.forEach((v,i) => {
-    ctx.lineTo(i * 8, 120 - v);
-  });
-
-  ctx.strokeStyle = "#22c55e";
-  ctx.stroke();
+  box.innerHTML = trades.map(t => `
+    <div class="trade">
+      <b>${t.symbol}</b><br/>
+      Entry: ${t.entry}<br/>
+      AI: <span class="${
+        t.ai.includes("GOOD") ? "good" :
+        t.ai.includes("WAIT") ? "ok" : "bad"
+      }">${t.ai}</span>
+    </div>
+  `).join('');
 }
 
 async function load() {
@@ -307,9 +233,6 @@ async function load() {
       $${c.price.toFixed(2)}
     </div>
   `).join('');
-
-  renderTrades();
-  updateEquity();
 }
 
 setInterval(load, 5000);

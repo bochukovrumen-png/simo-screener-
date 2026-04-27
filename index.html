@@ -18,7 +18,7 @@ async function refreshData() {
   container.innerHTML = data.signals.map(s => `
     <div style="margin:10px;padding:10px;border:1px solid #ccc">
       <h3>${s.symbol}</h3>
-      <p>Price: ${Number(s.price).toFixed(2)}</p>
+     <p>Price: ${s.price ? Number(s.price).toFixed(2) : 'N/A'}</p>
       <p>Signal: <b>${s.signal}</b></p>
     </div>
   `).join('');

@@ -2,27 +2,67 @@
 <html>
 <body>
 
-<h1>Screener</h1>
+<h1>Simo Screener (Top 100)</h1>
 
 <button onclick="refreshData()">Refresh</button>
 
 <div id="table"></div>
 
 <script>
+let history = {};
+
+function calculateEMA(prices, period) {
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+
+  return ema;
+}
+
+function getSignal(symbol, price) {
+  if (!history[symbol]) history[symbol] = [];
+
+  history[symbol].push(price);
+
+  // пазим последните 30 цени
+  if (history[symbol].length > 30) {
+    history[symbol].shift();
+  }
+
+  if (history[symbol].length < 21) return "WAIT";
+
+  const ema9 = calculateEMA(history[symbol].slice(-9), 9);
+  const ema21 = calculateEMA(history[symbol].slice(-21), 21);
+
+  if (ema9 > ema21) return "BUY";
+  if (ema9 < ema21) return "SELL";
+  return "WAIT";
+}
+
 async function refreshData() {
   const res = await fetch('/api/refresh');
   const data = await res.json();
 
   const container = document.getElementById('table');
 
-  container.innerHTML = data.signals.map(s => `
-    <div style="margin:10px;padding:10px;border:1px solid #ccc">
-      <h3>${s.symbol}</h3>
-     <p>Price: ${s.price ? Number(s.price).toFixed(2) : 'N/A'}</p>
-      <p>Signal: <b>${s.signal}</b></p>
-    </div>
-  `).join('');
+  container.innerHTML = data.coins.map(c => {
+    const signal = getSignal(c.symbol, c.price);
+
+    return `
+      <div style="margin:8px;padding:8px;border:1px solid #ccc">
+        <b>${c.symbol}</b> (${c.name})<br/>
+        Price: ${c.price.toFixed(2)}<br/>
+        Signal: <b>${signal}</b>
+      </div>
+    `;
+  }).join('');
 }
+
+// авто refresh на 5 сек
+setInterval(refreshData, 5000);
 </script>
 
 </body>

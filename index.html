@@ -1,36 +1,56 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Bochu AI Trading</title>
+<title>Bochu AI Trading PRO</title>
 
 <style>
 body{margin:0;font-family:Arial;background:#0b0f19;color:white}
+
 .top{display:flex;gap:10px;padding:10px;background:#020617}
 
 input{padding:6px;background:#1e293b;color:white;border:none}
 
+.searchBox{position:relative}
+#results{
+position:absolute;
+top:35px;
+background:#1e293b;
+width:220px;
+max-height:200px;
+overflow:auto;
+border-radius:6px;
+}
+
+.item{padding:6px;cursor:pointer}
+.item:hover{background:#334155}
+
+button{cursor:pointer}
+
 .app{display:grid;grid-template-columns:260px 1fr 360px;height:95vh}
 
 .sidebar{background:#0f172a;padding:10px}
-.coin{background:#1e293b;margin:5px 0;padding:8px;border-radius:6px}
+.coin{background:#1e293b;margin:5px 0;padding:8px;border-radius:6px;cursor:pointer}
 
 .main{padding:15px}
 .right{background:#0f172a;padding:10px}
 
+.trade{background:#111827;margin:5px 0;padding:10px;border-radius:8px}
+
 .green{color:#22c55e}
 .red{color:#ef4444}
 .yellow{color:#facc15}
-
-button{margin:5px;padding:6px;border:none;border-radius:6px;background:#334155;color:white;cursor:pointer}
-.active{background:#22c55e;color:black}
 </style>
 </head>
 
 <body>
 
 <div class="top">
+
+<div class="searchBox">
 <input placeholder="Search..." oninput="search(this.value)">
 <div id="results"></div>
+</div>
+
 </div>
 
 <div class="app">
@@ -64,40 +84,111 @@ SL % <input id="sl" value="3">
 
 <!-- RIGHT -->
 <div class="right">
-<h3>Active Trade</h3>
-<div id="tradeBox"></div>
+<h3>Trades</h3>
+<div id="trades"></div>
 </div>
 
 </div>
 
 <script>
 
+// STORAGE
+let trades=JSON.parse(localStorage.getItem("trades"))||[]
 let watch=JSON.parse(localStorage.getItem("watch"))||[]
-let trade=null
+
 let side="LONG"
 let current=null
 
 function saveLS(){
+localStorage.setItem("trades",JSON.stringify(trades))
 localStorage.setItem("watch",JSON.stringify(watch))
+}
+
+// EMA
+function ema(arr, p){
+let k=2/(p+1)
+let v=arr[0]
+for(let i=1;i<arr.length;i++){
+v=arr[i]*k+v*(1-k)
+}
+return v
+}
+
+// VCP detection
+function detectVCP(prices){
+let ranges=[]
+for(let i=1;i<prices.length;i++){
+ranges.push(Math.abs(prices[i]-prices[i-1]))
+}
+let shrinking=true
+for(let i=1;i<ranges.length;i++){
+if(ranges[i]>ranges[i-1]) shrinking=false
+}
+return shrinking
+}
+
+// AI ENGINE
+async function runAI(id){
+
+let res=await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=30`)
+let data=await res.json()
+
+let prices=data.prices.map(p=>p[1])
+
+let e9=ema(prices.slice(-9),9)
+let e20=ema(prices.slice(-20),20)
+let e50=ema(prices.slice(-50),50)
+let e200=ema(prices.slice(-50),50) // fallback
+
+let trendLong = e9>e20 && e20>e50
+let trendShort = e9<e20 && e20<e50
+
+let vcp=detectVCP(prices.slice(-10))
+
+// RS vs BTC
+let btc=await fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=30`)
+let btcData=await btc.json()
+let btcPrices=btcData.prices.map(p=>p[1])
+
+let rs = (prices[prices.length-1]/prices[0]) > (btcPrices[btcPrices.length-1]/btcPrices[0])
+
+let score=0
+
+if(trendLong||trendShort) score+=40
+if(vcp) score+=30
+if(rs) score+=30
+
+let text=""
+
+if(score>70) text="🟢 TOP SETUP"
+else if(score>40) text="🟡 WATCH"
+else text="🔴 NO TRADE"
+
+document.getElementById("analysis").innerHTML=
+`${text}<br/>Score: ${score}/100`
 }
 
 // SEARCH
 async function search(q){
-if(q.length<2)return
+
+if(q.length<2){
+document.getElementById("results").innerHTML=""
+return
+}
 
 let res=await fetch(`https://api.coingecko.com/api/v3/search?query=${q}`)
 let data=await res.json()
 
 document.getElementById("results").innerHTML=
 data.coins.slice(0,8).map(c=>`
-<div onclick="select('${c.id}','${c.symbol.toUpperCase()}')">
+<div class="item" onclick="select('${c.id}','${c.symbol.toUpperCase()}')">
 ${c.symbol.toUpperCase()} - ${c.name}
 </div>
 `).join("")
 }
 
 // SELECT
-async function select(id,symbol){
+function select(id,symbol){
 
 if(!watch.find(x=>x.id===id)){
 watch.push({id,symbol,price:0})
@@ -105,17 +196,17 @@ saveLS()
 renderWatch()
 }
 
+current={id,symbol}
+
 document.getElementById("asset").innerText=symbol
 
 document.getElementById("chart").src=
 `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark`
 
-current={id,symbol}
-
-runAI()
+runAI(id)
 }
 
-// WATCHLIST
+// WATCH
 async function updatePrices(){
 
 if(watch.length===0)return
@@ -129,19 +220,19 @@ let res=await fetch(
 let data=await res.json()
 
 watch.forEach(w=>{
-if(data[w.id])w.price=data[w.id].usd
+if(data[w.id]) w.price=data[w.id].usd
 })
 
 renderWatch()
-updateTrade()
+renderTrades()
 }
 
 function renderWatch(){
 document.getElementById("watch").innerHTML=
 watch.map((w,i)=>`
 <div class="coin">
-<b onclick="select('${w.id}','${w.symbol}')">${w.symbol}</b><br/>
-$${w.price}
+<b onclick="select('${w.id}','${w.symbol}')">${w.symbol}</b>
+<br/>$${w.price}
 <button onclick="remove(${i})">🗑</button>
 </div>
 `).join("")
@@ -153,14 +244,9 @@ saveLS()
 renderWatch()
 }
 
-// SIDE
-function setSide(s){
-side=s
-document.getElementById("longBtn").classList.toggle("active",s==="LONG")
-document.getElementById("shortBtn").classList.toggle("active",s==="SHORT")
-}
+// TRADE
+function setSide(s){side=s}
 
-// START TRADE
 function startTrade(){
 
 let entry=watch.find(w=>w.id===current.id).price
@@ -170,64 +256,47 @@ let sl=side==="LONG"
 ?entry*(1-slp/100)
 :entry*(1+slp/100)
 
-trade={...current,entry,sl,side}
-
-updateTrade()
+trades.push({...current,entry,sl,side,id:Date.now()})
+saveLS()
+renderTrades()
 }
 
-// R CALC
 function calcR(t,price){
 let risk=Math.abs(t.entry-t.sl)
 let reward=t.side==="LONG"?price-t.entry:t.entry-price
 return reward/risk
 }
 
-// UPDATE TRADE PANEL
-function updateTrade(){
+function renderTrades(){
 
-if(!trade)return
+document.getElementById("trades").innerHTML=
+trades.map((t,i)=>{
 
-let price=watch.find(w=>w.id===trade.id).price
+let w=watch.find(x=>x.id===t.id)
+let price=w?w.price:t.entry
 
-let r=calcR(trade,price)
+let r=calcR(t,price)
 
-let status="OPEN"
-if(trade.side==="LONG"&&price<trade.sl)status="LOSS"
-if(trade.side==="SHORT"&&price>trade.sl)status="LOSS"
+return `
+<div class="trade">
+<b>${t.symbol} (${t.side})</b><br/>
+Entry ${t.entry}<br/>
+SL ${t.sl.toFixed(2)}<br/>
 
-document.getElementById("tradeBox").innerHTML=`
-<b>${trade.symbol} (${trade.side})</b><br/>
-Price: ${price}<br/>
-SL: ${trade.sl.toFixed(2)}<br/>
+R <span class="${r>0?'green':'red'}">${r.toFixed(2)}</span><br/>
 
-R: <span class="${r>0?'green':'red'}">${r.toFixed(2)}</span><br/>
-
-<span class="${status==='LOSS'?'red':'green'}">${status}</span>
-`
+<button onclick="del(${i})">🗑</button>
+</div>`
+}).join("")
 }
 
-// AI ANALYSIS
-function runAI(){
-
-// fake EMA logic (placeholder but structured)
-let trend=Math.random()
-
-let text=""
-if(trend>0.7){
-text="🟢 TOP SETUP (EMA aligned + strength)"
-}
-else if(trend>0.4){
-text="🟡 WATCH (consolidation forming)"
-}
-else{
-text="🔴 NO TRADE (no trend)"
+function del(i){
+trades.splice(i,1)
+saveLS()
+renderTrades()
 }
 
-document.getElementById("analysis").innerHTML=text
-}
-
-// LOOP
-setInterval(updatePrices,4000)
+setInterval(updatePrices,5000)
 updatePrices()
 
 </script>

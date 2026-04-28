@@ -1,27 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Bochu Trading PRO</title>
+<title>Bochu AI Trading</title>
 
 <style>
 body{margin:0;font-family:Arial;background:#0b0f19;color:white}
 .top{display:flex;gap:10px;padding:10px;background:#020617}
-.btn{padding:6px 12px;background:#1e293b;border-radius:6px;cursor:pointer}
-.active{background:#22c55e;color:black}
 
-.searchBox{position:relative}
-#results{
-position:absolute;
-top:35px;
-background:#1e293b;
-width:200px;
-max-height:200px;
-overflow:auto;
-border-radius:6px;
-}
-
-.item{padding:5px;cursor:pointer}
-.item:hover{background:#334155}
+input{padding:6px;background:#1e293b;color:white;border:none}
 
 .app{display:grid;grid-template-columns:260px 1fr 360px;height:95vh}
 
@@ -31,25 +17,20 @@ border-radius:6px;
 .main{padding:15px}
 .right{background:#0f172a;padding:10px}
 
-.trade{background:#111827;margin:5px 0;padding:10px;border-radius:8px}
-
 .green{color:#22c55e}
 .red{color:#ef4444}
+.yellow{color:#facc15}
+
+button{margin:5px;padding:6px;border:none;border-radius:6px;background:#334155;color:white;cursor:pointer}
+.active{background:#22c55e;color:black}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-
-<div class="btn active" onclick="setUser('Rumen')">Rumen</div>
-<div class="btn" onclick="setUser('Goro')">Goro</div>
-
-<div class="searchBox">
-<input placeholder="Search asset..." oninput="search(this.value)">
+<input placeholder="Search..." oninput="search(this.value)">
 <div id="results"></div>
-</div>
-
 </div>
 
 <div class="app">
@@ -63,84 +44,81 @@ border-radius:6px;
 <!-- CENTER -->
 <div class="main">
 
-<h3 id="selected">Select asset</h3>
+<h3 id="asset">Select asset</h3>
 
 <iframe id="chart" width="100%" height="420"
 src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark"></iframe>
 
+<div id="analysis"></div>
+
 <div>
-SL % <input id="sl" value="3">
-<button onclick="flip()">Flip (<span id="sideView">LONG</span>)</button>
-<button onclick="save()">Save</button>
+<button onclick="setSide('LONG')" id="longBtn">LONG</button>
+<button onclick="setSide('SHORT')" id="shortBtn">SHORT</button>
 </div>
+
+SL % <input id="sl" value="3">
+
+<button onclick="startTrade()">🚀 Start Trade</button>
 
 </div>
 
 <!-- RIGHT -->
 <div class="right">
-<h3>Trades</h3>
-<div id="trades"></div>
+<h3>Active Trade</h3>
+<div id="tradeBox"></div>
 </div>
 
 </div>
 
 <script>
 
-let user="Rumen"
-let side="LONG"
-let temp=null
-
-let store=JSON.parse(localStorage.getItem("store"))||{Rumen:[],Goro:[]}
 let watch=JSON.parse(localStorage.getItem("watch"))||[]
+let trade=null
+let side="LONG"
+let current=null
 
-function saveStorage(){
-localStorage.setItem("store",JSON.stringify(store))
+function saveLS(){
 localStorage.setItem("watch",JSON.stringify(watch))
 }
 
-function setUser(u){
-user=u
-renderTrades()
-}
-
+// SEARCH
 async function search(q){
-
-if(q.length<2){
-document.getElementById("results").innerHTML=""
-return
-}
+if(q.length<2)return
 
 let res=await fetch(`https://api.coingecko.com/api/v3/search?query=${q}`)
 let data=await res.json()
 
 document.getElementById("results").innerHTML=
-data.coins.slice(0,10).map(c=>`
-<div class="item" onclick="add('${c.id}','${c.symbol.toUpperCase()}')">
+data.coins.slice(0,8).map(c=>`
+<div onclick="select('${c.id}','${c.symbol.toUpperCase()}')">
 ${c.symbol.toUpperCase()} - ${c.name}
 </div>
 `).join("")
 }
 
-function add(id,symbol){
+// SELECT
+async function select(id,symbol){
 
 if(!watch.find(x=>x.id===id)){
 watch.push({id,symbol,price:0})
-saveStorage()
+saveLS()
 renderWatch()
 }
 
-document.getElementById("results").innerHTML=""
+document.getElementById("asset").innerText=symbol
+
+document.getElementById("chart").src=
+`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark`
+
+current={id,symbol}
+
+runAI()
 }
 
-function remove(i){
-watch.splice(i,1)
-saveStorage()
-renderWatch()
-}
-
+// WATCHLIST
 async function updatePrices(){
 
-if(watch.length===0) return
+if(watch.length===0)return
 
 let ids=watch.map(x=>x.id).join(",")
 
@@ -151,99 +129,105 @@ let res=await fetch(
 let data=await res.json()
 
 watch.forEach(w=>{
-if(data[w.id]){
-w.price=data[w.id].usd
-}
+if(data[w.id])w.price=data[w.id].usd
 })
 
 renderWatch()
-renderTrades()
+updateTrade()
 }
 
 function renderWatch(){
-
 document.getElementById("watch").innerHTML=
 watch.map((w,i)=>`
 <div class="coin">
-<b onclick="select('${w.id}','${w.symbol}',${w.price})">${w.symbol}</b><br/>
+<b onclick="select('${w.id}','${w.symbol}')">${w.symbol}</b><br/>
 $${w.price}
 <button onclick="remove(${i})">🗑</button>
 </div>
 `).join("")
 }
 
-function select(id,symbol,price){
-
-document.getElementById("selected").innerText=symbol
-
-document.getElementById("chart").src=
-`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark`
-
-temp={id,symbol,entry:price,side}
+function remove(i){
+watch.splice(i,1)
+saveLS()
+renderWatch()
 }
 
-function flip(){
-side=side==="LONG"?"SHORT":"LONG"
-document.getElementById("sideView").innerText=side
+// SIDE
+function setSide(s){
+side=s
+document.getElementById("longBtn").classList.toggle("active",s==="LONG")
+document.getElementById("shortBtn").classList.toggle("active",s==="SHORT")
 }
 
-function save(){
+// START TRADE
+function startTrade(){
 
+let entry=watch.find(w=>w.id===current.id).price
 let slp=document.getElementById("sl").value
 
 let sl=side==="LONG"
-?temp.entry*(1-slp/100)
-:temp.entry*(1+slp/100)
+?entry*(1-slp/100)
+:entry*(1+slp/100)
 
-store[user].push({...temp,sl})
-saveStorage()
-renderTrades()
+trade={...current,entry,sl,side}
+
+updateTrade()
 }
 
+// R CALC
 function calcR(t,price){
-
 let risk=Math.abs(t.entry-t.sl)
 let reward=t.side==="LONG"?price-t.entry:t.entry-price
-
 return reward/risk
 }
 
-function renderTrades(){
+// UPDATE TRADE PANEL
+function updateTrade(){
 
-document.getElementById("trades").innerHTML=
-store[user].map((t,i)=>{
+if(!trade)return
 
-let live=watch.find(w=>w.id===t.id)
-let price=live?live.price:t.entry
+let price=watch.find(w=>w.id===trade.id).price
 
-let r=calcR(t,price)
+let r=calcR(trade,price)
 
 let status="OPEN"
-if(t.side==="LONG"&&price<t.sl)status="LOSS"
-if(t.side==="SHORT"&&price>t.sl)status="LOSS"
+if(trade.side==="LONG"&&price<trade.sl)status="LOSS"
+if(trade.side==="SHORT"&&price>trade.sl)status="LOSS"
 
-return `
-<div class="trade">
-<b>${t.symbol} (${t.side})</b><br/>
-Entry ${t.entry}<br/>
-SL ${t.sl.toFixed(2)}<br/>
+document.getElementById("tradeBox").innerHTML=`
+<b>${trade.symbol} (${trade.side})</b><br/>
+Price: ${price}<br/>
+SL: ${trade.sl.toFixed(2)}<br/>
 
-R <span class="${r>0?'green':'red'}">${r.toFixed(2)}</span><br/>
+R: <span class="${r>0?'green':'red'}">${r.toFixed(2)}</span><br/>
 
-${status==="LOSS"?"<span class='red'>LOSS</span>":"<span class='green'>OPEN</span>"}
-
-<button onclick="del(${i})">🗑</button>
-</div>`
-}).join("")
+<span class="${status==='LOSS'?'red':'green'}">${status}</span>
+`
 }
 
-function del(i){
-store[user].splice(i,1)
-saveStorage()
-renderTrades()
+// AI ANALYSIS
+function runAI(){
+
+// fake EMA logic (placeholder but structured)
+let trend=Math.random()
+
+let text=""
+if(trend>0.7){
+text="🟢 TOP SETUP (EMA aligned + strength)"
+}
+else if(trend>0.4){
+text="🟡 WATCH (consolidation forming)"
+}
+else{
+text="🔴 NO TRADE (no trend)"
 }
 
-setInterval(updatePrices,5000)
+document.getElementById("analysis").innerHTML=text
+}
+
+// LOOP
+setInterval(updatePrices,4000)
 updatePrices()
 
 </script>

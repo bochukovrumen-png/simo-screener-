@@ -9,6 +9,20 @@ body{margin:0;font-family:Arial;background:#0b0f19;color:white}
 .btn{padding:6px 12px;background:#1e293b;border-radius:6px;cursor:pointer}
 .active{background:#22c55e;color:black}
 
+.searchBox{position:relative}
+#results{
+position:absolute;
+top:35px;
+background:#1e293b;
+width:200px;
+max-height:200px;
+overflow:auto;
+border-radius:6px;
+}
+
+.item{padding:5px;cursor:pointer}
+.item:hover{background:#334155}
+
 .app{display:grid;grid-template-columns:260px 1fr 360px;height:95vh}
 
 .sidebar{background:#0f172a;padding:10px}
@@ -19,29 +33,31 @@ body{margin:0;font-family:Arial;background:#0b0f19;color:white}
 
 .trade{background:#111827;margin:5px 0;padding:10px;border-radius:8px}
 
-input{background:#0f172a;color:white;border:1px solid #334155;padding:5px}
-
 .green{color:#22c55e}
 .red{color:#ef4444}
-.yellow{color:#facc15}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-  <div class="btn active" onclick="setUser('Rumen')">Rumen</div>
-  <div class="btn" onclick="setUser('Goro')">Goro</div>
 
-  <input placeholder="Search..." oninput="search(this.value)">
+<div class="btn active" onclick="setUser('Rumen')">Rumen</div>
+<div class="btn" onclick="setUser('Goro')">Goro</div>
+
+<div class="searchBox">
+<input placeholder="Search asset..." oninput="search(this.value)">
+<div id="results"></div>
+</div>
+
 </div>
 
 <div class="app">
 
 <!-- LEFT -->
 <div class="sidebar">
-  <h3>Watchlist</h3>
-  <div id="watch"></div>
+<h3>Watchlist</h3>
+<div id="watch"></div>
 </div>
 
 <!-- CENTER -->
@@ -54,11 +70,9 @@ src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark"><
 
 <div>
 SL % <input id="sl" value="3">
-<button onclick="flip()">Flip</button>
+<button onclick="flip()">Flip (<span id="sideView">LONG</span>)</button>
 <button onclick="save()">Save</button>
 </div>
-
-<div id="analysis"></div>
 
 </div>
 
@@ -89,22 +103,33 @@ user=u
 renderTrades()
 }
 
-function search(q){
+async function search(q){
 
-let list=["BTC","ETH","SOL","AAPL","TSLA","GOLD","SILVER"]
+if(q.length<2){
+document.getElementById("results").innerHTML=""
+return
+}
 
-let res=list.filter(x=>x.toLowerCase().includes(q.toLowerCase()))
+let res=await fetch(`https://api.coingecko.com/api/v3/search?query=${q}`)
+let data=await res.json()
 
-document.getElementById("watch").innerHTML=
-res.map(s=>`
-<div class="coin" onclick="add('${s}')">${s}</div>
+document.getElementById("results").innerHTML=
+data.coins.slice(0,10).map(c=>`
+<div class="item" onclick="add('${c.id}','${c.symbol.toUpperCase()}')">
+${c.symbol.toUpperCase()} - ${c.name}
+</div>
 `).join("")
 }
 
-function add(s){
-if(!watch.includes(s)) watch.push(s)
+function add(id,symbol){
+
+if(!watch.find(x=>x.id===id)){
+watch.push({id,symbol,price:0})
 saveStorage()
 renderWatch()
+}
+
+document.getElementById("results").innerHTML=""
 }
 
 function remove(i){
@@ -113,44 +138,62 @@ saveStorage()
 renderWatch()
 }
 
+async function updatePrices(){
+
+if(watch.length===0) return
+
+let ids=watch.map(x=>x.id).join(",")
+
+let res=await fetch(
+`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
+)
+
+let data=await res.json()
+
+watch.forEach(w=>{
+if(data[w.id]){
+w.price=data[w.id].usd
+}
+})
+
+renderWatch()
+renderTrades()
+}
+
 function renderWatch(){
 
 document.getElementById("watch").innerHTML=
-watch.map((s,i)=>{
-
-let price=100*(1+(Math.random()-0.5)*0.05)
-
-return `
+watch.map((w,i)=>`
 <div class="coin">
-<b onclick="select('${s}',${price})">${s}</b>
-<br/>$${price.toFixed(2)}
+<b onclick="select('${w.id}','${w.symbol}',${w.price})">${w.symbol}</b><br/>
+$${w.price}
 <button onclick="remove(${i})">🗑</button>
-</div>`
-}).join("")
+</div>
+`).join("")
 }
 
-function select(s,p){
+function select(id,symbol,price){
 
-document.getElementById("selected").innerText=s
+document.getElementById("selected").innerText=symbol
 
 document.getElementById("chart").src=
-`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${s}USDT&theme=dark`
+`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark`
 
-temp={symbol:s,entry:p,side}
-
-aiAnalysis()
-
+temp={id,symbol,entry:price,side}
 }
 
 function flip(){
 side=side==="LONG"?"SHORT":"LONG"
+document.getElementById("sideView").innerText=side
 }
 
 function save(){
 
 let slp=document.getElementById("sl").value
 
-let sl=side==="LONG"?temp.entry*(1-slp/100):temp.entry*(1+slp/100)
+let sl=side==="LONG"
+?temp.entry*(1-slp/100)
+:temp.entry*(1+slp/100)
 
 store[user].push({...temp,sl})
 saveStorage()
@@ -170,7 +213,8 @@ function renderTrades(){
 document.getElementById("trades").innerHTML=
 store[user].map((t,i)=>{
 
-let price=t.entry*(1+(Math.random()-0.5)*0.05)
+let live=watch.find(w=>w.id===t.id)
+let price=live?live.price:t.entry
 
 let r=calcR(t,price)
 
@@ -199,24 +243,8 @@ saveStorage()
 renderTrades()
 }
 
-function aiAnalysis(){
-
-let chance=["HIGH","MEDIUM","LOW"][Math.floor(Math.random()*3)]
-
-let warn=Math.random()>0.6?"⚠️ Weak volume":""
-let setup=Math.random()>0.6?"🚀 VCP forming":""
-
-document.getElementById("analysis").innerHTML=
-`Chance: ${chance}<br/>${warn}<br/>${setup}`
-}
-
-setInterval(()=>{
-renderWatch()
-renderTrades()
-},3000)
-
-renderWatch()
-renderTrades()
+setInterval(updatePrices,5000)
+updatePrices()
 
 </script>
 

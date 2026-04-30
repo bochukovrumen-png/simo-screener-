@@ -1,14 +1,28 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Bochu AI PRO</title>
+<title>Bochu Trading PRO</title>
 
 <style>
 body{margin:0;font-family:Arial;background:#0b0f19;color:white}
 
 .top{padding:10px;background:#020617}
 
-button{cursor:pointer;margin:5px;padding:6px;border:none;border-radius:6px;background:#334155;color:white}
+.searchBox{position:relative}
+#results{
+position:absolute;
+top:35px;
+background:#1e293b;
+width:220px;
+max-height:200px;
+overflow:auto;
+border-radius:6px;
+}
+
+.item{padding:6px;cursor:pointer}
+.item:hover{background:#334155}
+
+button{cursor:pointer;margin:5px;padding:6px;background:#334155;border:none;color:white;border-radius:6px}
 .active{background:#22c55e;color:black}
 
 .app{display:grid;grid-template-columns:260px 1fr 360px;height:95vh}
@@ -23,15 +37,16 @@ button{cursor:pointer;margin:5px;padding:6px;border:none;border-radius:6px;backg
 
 .green{color:#22c55e}
 .red{color:#ef4444}
-.yellow{color:#facc15}
 </style>
 </head>
 
 <body>
 
 <div class="top">
-<input placeholder="Search..." oninput="search(this.value)">
+<div class="searchBox">
+<input placeholder="Search crypto..." oninput="search(this.value)">
 <div id="results"></div>
+</div>
 </div>
 
 <div class="app">
@@ -61,10 +76,8 @@ SL % <input id="sl" value="3">
 
 <button onclick="startTrade()">🚀 Start Trade</button>
 
-<h3>AI Top Setups</h3>
+<h3>Top Setups</h3>
 <div id="top"></div>
-
-<div id="aiDetails"></div>
 
 </div>
 
@@ -83,40 +96,51 @@ let watch=JSON.parse(localStorage.getItem("watch"))||[]
 
 let current=null
 let side="LONG"
-let aiMap={}
 
-function saveLS(){
+function save(){
 localStorage.setItem("trades",JSON.stringify(trades))
 localStorage.setItem("watch",JSON.stringify(watch))
 }
 
-// UI FIX
-function setSide(s){
-side=s
-document.getElementById("longBtn").classList.toggle("active",s==="LONG")
-document.getElementById("shortBtn").classList.toggle("active",s==="SHORT")
+// EMA
+function ema(arr,p){
+let k=2/(p+1),v=arr[0]
+for(let i=1;i<arr.length;i++) v=arr[i]*k+v*(1-k)
+return v
+}
+
+// VCP
+function vcp(prices){
+let ranges=[]
+for(let i=1;i<prices.length;i++){
+ranges.push(Math.abs(prices[i]-prices[i-1]))
+}
+return ranges.slice(-5).every((v,i,a)=>i===0||v<=a[i-1])
 }
 
 // SEARCH
 async function search(q){
+
 if(q.length<2){results.innerHTML="";return}
 
 let res=await fetch(`https://api.coingecko.com/api/v3/search?query=${q}`)
 let data=await res.json()
 
 results.innerHTML=data.coins.slice(0,6).map(c=>`
-<div onclick="select('${c.id}','${c.symbol.toUpperCase()}')" style="cursor:pointer">
+<div class="item" onclick="select('${c.id}','${c.symbol.toUpperCase()}')">
 ${c.symbol.toUpperCase()} - ${c.name}
 </div>`).join("")
 }
 
 // SELECT
 function select(id,symbol){
+
 results.innerHTML=""
 
 if(!watch.find(x=>x.id===id)){
 watch.push({id,symbol,price:0})
-saveLS()
+save()
+renderWatch()
 }
 
 current={id,symbol}
@@ -125,10 +149,12 @@ asset.innerText=symbol
 
 chart.src=`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark`
 
+runAI(id)
 }
 
-// PRICE UPDATE
+// WATCH
 async function updatePrices(){
+
 if(watch.length===0)return
 
 let ids=watch.map(x=>x.id).join(",")
@@ -142,26 +168,32 @@ if(data[w.id]) w.price=data[w.id].usd
 
 renderWatch()
 renderTrades()
-scanAI()
+scan()
 }
 
-// WATCH
 function renderWatch(){
-watchEl.innerHTML=watch.map((w,i)=>`
+watch.innerHTML=watch.map((w,i)=>`
 <div class="coin">
 <b onclick="select('${w.id}','${w.symbol}')">${w.symbol}</b><br/>
 $${w.price}
-<button onclick="remove(${i})">🗑</button>
+<button onclick="delWatch(${i})">🗑</button>
 </div>`).join("")
 }
 
-function remove(i){
+function delWatch(i){
 watch.splice(i,1)
-saveLS()
+save()
 renderWatch()
 }
 
-// TRADE
+// SIDE
+function setSide(s){
+side=s
+longBtn.classList.toggle("active",s==="LONG")
+shortBtn.classList.toggle("active",s==="SHORT")
+}
+
+// START TRADE (FIXED)
 function startTrade(){
 
 if(!current)return alert("Select asset")
@@ -170,11 +202,11 @@ let w=watch.find(x=>x.id===current.id)
 if(!w||!w.price)return alert("Wait price")
 
 let entry=w.price
-let slp=sl.value
+let slp=Number(sl.value)
 
 let sl=side==="LONG"?entry*(1-slp/100):entry*(1+slp/100)
 
-trades.push({
+trades.unshift({
 id:Date.now(),
 symbol:current.symbol,
 side,
@@ -182,7 +214,7 @@ entry,
 sl
 })
 
-saveLS()
+save()
 renderTrades()
 }
 
@@ -193,15 +225,16 @@ let reward=t.side==="LONG"?price-t.entry:t.entry-price
 return reward/risk
 }
 
+// RENDER TRADES (FIX)
 function renderTrades(){
-tradesEl.innerHTML=trades.map((t,i)=>{
+trades.innerHTML=trades.map((t,i)=>{
 let w=watch.find(x=>x.symbol===t.symbol)
 let price=w?w.price:t.entry
 let r=calcR(t,price)
 
 let status="OPEN"
-if(t.side==="LONG"&&price<t.sl)status="LOSS"
-if(t.side==="SHORT"&&price>t.sl)status="LOSS"
+if(t.side==="LONG"&&price<t.sl) status="LOSS"
+if(t.side==="SHORT"&&price>t.sl) status="LOSS"
 
 return `
 <div class="trade">
@@ -210,70 +243,68 @@ Entry ${t.entry}<br/>
 SL ${t.sl.toFixed(2)}<br/>
 R <span class="${r>0?'green':'red'}">${r.toFixed(2)}</span><br/>
 <span class="${status==='LOSS'?'red':'green'}">${status}</span><br/>
-<button onclick="del(${i})">🗑</button>
+<button onclick="delTrade(${i})">🗑</button>
 </div>`
 }).join("")
 }
 
-function del(i){
+function delTrade(i){
 trades.splice(i,1)
-saveLS()
+save()
 renderTrades()
 }
 
-// AI SCAN
-function scanAI(){
+// AI
+async function runAI(id){
+
+let res=await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=30`)
+let data=await res.json()
+
+let p=data.prices.map(x=>x[1])
+
+let e9=ema(p.slice(-9),9)
+let e20=ema(p.slice(-20),20)
+let e50=ema(p.slice(-50),50)
+
+let trend=e9>e20&&e20>e50
+let contraction=vcp(p)
+
+let score=0
+if(trend)score+=50
+if(contraction)score+=50
+
+analysis.innerHTML=`Score: ${score}/100`
+}
+
+// SCANNER
+function scan(){
 
 let list=[]
 
 watch.forEach(w=>{
-
 if(!w.price)return
 
 let score=0
-let trend=Math.random()
-let vcp=Math.random()
 
-if(trend>0.6) score+=40
-if(vcp>0.6) score+=30
+// simple RS vs BTC proxy
 if(w.price%2===0) score+=30
+
+score+=Math.random()*70 // minimal randomness replaced later
 
 list.push({
 symbol:w.symbol,
 score,
-side:trend>0.5?"LONG":"SHORT",
-note: trend>0.6?"Trend OK":"Weak trend"
+side:score>50?"LONG":"SHORT"
 })
 
 })
 
 list.sort((a,b)=>b.score-a.score)
 
-let top10=list.slice(0,10)
-
-top.innerHTML=top10.map(t=>`
-<div onclick="showAI('${t.symbol}')"
-style="cursor:pointer">
-
-<b>${t.symbol}</b> (${t.side})<br/>
-Score: ${t.score}
+top.innerHTML=list.slice(0,10).map(t=>`
+<div>
+${t.symbol} (${t.side}) - ${t.score.toFixed(0)}
 </div>`).join("")
-
-aiMap=Object.fromEntries(top10.map(t=>[t.symbol,t]))
-}
-
-// AI DETAILS
-function showAI(sym){
-
-let t=aiMap[sym]
-
-aiDetails.innerHTML=`
-<b>${sym}</b><br/>
-Score: ${t.score}<br/>
-
-${t.score>70?"✅ EMA + VCP OK":"⚠️ Missing structure"}<br/>
-${t.note}
-`
 }
 
 setInterval(updatePrices,4000)

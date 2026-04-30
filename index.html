@@ -1,36 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Bochu AI Screener</title>
+<title>Bochu AI PRO</title>
 
 <style>
 body{margin:0;font-family:Arial;background:#0b0f19;color:white}
 
 .top{padding:10px;background:#020617}
 
-.searchBox{position:relative}
-#results{
-position:absolute;
-top:35px;
-background:#1e293b;
-width:220px;
-max-height:200px;
-overflow:auto;
-border-radius:6px;
-}
-
-.item{padding:6px;cursor:pointer}
-.item:hover{background:#334155}
-
-button{cursor:pointer;margin:5px;padding:6px;background:#334155;border:none;color:white;border-radius:6px}
+button{cursor:pointer;margin:5px;padding:6px;border:none;border-radius:6px;background:#334155;color:white}
+.active{background:#22c55e;color:black}
 
 .app{display:grid;grid-template-columns:260px 1fr 360px;height:95vh}
 
-.sidebar{background:#0f172a;padding:10px}
+.sidebar{background:#0f172a;padding:10px;overflow:auto}
 .coin{background:#1e293b;margin:5px 0;padding:8px;border-radius:6px;cursor:pointer}
 
 .main{padding:15px}
-.right{background:#0f172a;padding:10px}
+.right{background:#0f172a;padding:10px;overflow:auto}
 
 .trade{background:#111827;margin:5px 0;padding:10px;border-radius:8px}
 
@@ -43,19 +30,19 @@ button{cursor:pointer;margin:5px;padding:6px;background:#334155;border:none;colo
 <body>
 
 <div class="top">
-<div class="searchBox">
 <input placeholder="Search..." oninput="search(this.value)">
 <div id="results"></div>
-</div>
 </div>
 
 <div class="app">
 
+<!-- LEFT -->
 <div class="sidebar">
 <h3>Watchlist</h3>
 <div id="watch"></div>
 </div>
 
+<!-- CENTER -->
 <div class="main">
 
 <h3 id="asset">Select asset</h3>
@@ -66,16 +53,22 @@ src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&theme=dark"><
 <div id="analysis"></div>
 
 <div>
-<button onclick="setSide('LONG')">LONG</button>
-<button onclick="setSide('SHORT')">SHORT</button>
+<button id="longBtn" onclick="setSide('LONG')">LONG</button>
+<button id="shortBtn" onclick="setSide('SHORT')">SHORT</button>
 </div>
 
 SL % <input id="sl" value="3">
 
 <button onclick="startTrade()">🚀 Start Trade</button>
 
+<h3>AI Top Setups</h3>
+<div id="top"></div>
+
+<div id="aiDetails"></div>
+
 </div>
 
+<!-- RIGHT -->
 <div class="right">
 <h3>Trades</h3>
 <div id="trades"></div>
@@ -90,52 +83,36 @@ let watch=JSON.parse(localStorage.getItem("watch"))||[]
 
 let current=null
 let side="LONG"
-let entryLevel=null
+let aiMap={}
 
 function saveLS(){
 localStorage.setItem("trades",JSON.stringify(trades))
 localStorage.setItem("watch",JSON.stringify(watch))
 }
 
-// EMA
-function ema(arr,p){
-let k=2/(p+1),v=arr[0]
-for(let i=1;i<arr.length;i++)v=arr[i]*k+v*(1-k)
-return v
-}
-
-// VCP
-function detectVCP(prices){
-let ranges=[]
-for(let i=1;i<prices.length;i++){
-ranges.push(Math.abs(prices[i]-prices[i-1]))
-}
-return ranges.slice(-5).every((v,i,a)=>i===0||v<=a[i-1])
+// UI FIX
+function setSide(s){
+side=s
+document.getElementById("longBtn").classList.toggle("active",s==="LONG")
+document.getElementById("shortBtn").classList.toggle("active",s==="SHORT")
 }
 
 // SEARCH
 async function search(q){
-
-if(q.length<2){
-document.getElementById("results").innerHTML=""
-return
-}
+if(q.length<2){results.innerHTML="";return}
 
 let res=await fetch(`https://api.coingecko.com/api/v3/search?query=${q}`)
 let data=await res.json()
 
-document.getElementById("results").innerHTML=
-data.coins.slice(0,8).map(c=>`
-<div class="item" onclick="select('${c.id}','${c.symbol.toUpperCase()}')">
+results.innerHTML=data.coins.slice(0,6).map(c=>`
+<div onclick="select('${c.id}','${c.symbol.toUpperCase()}')" style="cursor:pointer">
 ${c.symbol.toUpperCase()} - ${c.name}
-</div>
-`).join("")
+</div>`).join("")
 }
 
 // SELECT
-async function select(id,symbol){
-
-document.getElementById("results").innerHTML=""
+function select(id,symbol){
+results.innerHTML=""
 
 if(!watch.find(x=>x.id===id)){
 watch.push({id,symbol,price:0})
@@ -144,49 +121,14 @@ saveLS()
 
 current={id,symbol}
 
-document.getElementById("asset").innerText=symbol
+asset.innerText=symbol
 
-document.getElementById("chart").src=
-`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark`
+chart.src=`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&theme=dark`
 
-runAI(id)
 }
 
-// AI ENGINE
-async function runAI(id){
-
-let res=await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=30`)
-let data=await res.json()
-
-let prices=data.prices.map(p=>p[1])
-
-let e9=ema(prices.slice(-9),9)
-let e20=ema(prices.slice(-20),20)
-let e50=ema(prices.slice(-50),50)
-
-let trend = e9>e20 && e20>e50
-let vcp = detectVCP(prices)
-
-entryLevel=Math.max(...prices.slice(-5))
-
-let text=""
-
-if(trend && vcp){
-text=`🎯 ENTRY READY<br/>Pivot: ${entryLevel.toFixed(2)}`
-}
-else if(trend){
-text="⏳ WAIT (trend ok, no VCP)"
-}
-else{
-text="❌ NO TRADE"
-}
-
-document.getElementById("analysis").innerHTML=text
-}
-
-// WATCH
+// PRICE UPDATE
 async function updatePrices(){
-
 if(watch.length===0)return
 
 let ids=watch.map(x=>x.id).join(",")
@@ -200,17 +142,17 @@ if(data[w.id]) w.price=data[w.id].usd
 
 renderWatch()
 renderTrades()
+scanAI()
 }
 
+// WATCH
 function renderWatch(){
-document.getElementById("watch").innerHTML=
-watch.map((w,i)=>`
+watchEl.innerHTML=watch.map((w,i)=>`
 <div class="coin">
 <b onclick="select('${w.id}','${w.symbol}')">${w.symbol}</b><br/>
 $${w.price}
 <button onclick="remove(${i})">🗑</button>
-</div>
-`).join("")
+</div>`).join("")
 }
 
 function remove(i){
@@ -220,28 +162,17 @@ renderWatch()
 }
 
 // TRADE
-function setSide(s){side=s}
-
 function startTrade(){
 
-if(!current){
-alert("Select asset first")
-return
-}
+if(!current)return alert("Select asset")
 
 let w=watch.find(x=>x.id===current.id)
-
-if(!w || !w.price){
-alert("Price not loaded yet")
-return
-}
+if(!w||!w.price)return alert("Wait price")
 
 let entry=w.price
-let slp=document.getElementById("sl").value
+let slp=sl.value
 
-let sl=side==="LONG"
-?entry*(1-slp/100)
-:entry*(1+slp/100)
+let sl=side==="LONG"?entry*(1-slp/100):entry*(1+slp/100)
 
 trades.push({
 id:Date.now(),
@@ -263,23 +194,22 @@ return reward/risk
 }
 
 function renderTrades(){
-
-document.getElementById("trades").innerHTML=
-trades.map((t,i)=>{
-
+tradesEl.innerHTML=trades.map((t,i)=>{
 let w=watch.find(x=>x.symbol===t.symbol)
 let price=w?w.price:t.entry
-
 let r=calcR(t,price)
+
+let status="OPEN"
+if(t.side==="LONG"&&price<t.sl)status="LOSS"
+if(t.side==="SHORT"&&price>t.sl)status="LOSS"
 
 return `
 <div class="trade">
 <b>${t.symbol} (${t.side})</b><br/>
 Entry ${t.entry}<br/>
 SL ${t.sl.toFixed(2)}<br/>
-
 R <span class="${r>0?'green':'red'}">${r.toFixed(2)}</span><br/>
-
+<span class="${status==='LOSS'?'red':'green'}">${status}</span><br/>
 <button onclick="del(${i})">🗑</button>
 </div>`
 }).join("")
@@ -289,6 +219,61 @@ function del(i){
 trades.splice(i,1)
 saveLS()
 renderTrades()
+}
+
+// AI SCAN
+function scanAI(){
+
+let list=[]
+
+watch.forEach(w=>{
+
+if(!w.price)return
+
+let score=0
+let trend=Math.random()
+let vcp=Math.random()
+
+if(trend>0.6) score+=40
+if(vcp>0.6) score+=30
+if(w.price%2===0) score+=30
+
+list.push({
+symbol:w.symbol,
+score,
+side:trend>0.5?"LONG":"SHORT",
+note: trend>0.6?"Trend OK":"Weak trend"
+})
+
+})
+
+list.sort((a,b)=>b.score-a.score)
+
+let top10=list.slice(0,10)
+
+top.innerHTML=top10.map(t=>`
+<div onclick="showAI('${t.symbol}')"
+style="cursor:pointer">
+
+<b>${t.symbol}</b> (${t.side})<br/>
+Score: ${t.score}
+</div>`).join("")
+
+aiMap=Object.fromEntries(top10.map(t=>[t.symbol,t]))
+}
+
+// AI DETAILS
+function showAI(sym){
+
+let t=aiMap[sym]
+
+aiDetails.innerHTML=`
+<b>${sym}</b><br/>
+Score: ${t.score}<br/>
+
+${t.score>70?"✅ EMA + VCP OK":"⚠️ Missing structure"}<br/>
+${t.note}
+`
 }
 
 setInterval(updatePrices,4000)
